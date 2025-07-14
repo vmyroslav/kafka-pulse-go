@@ -2,7 +2,6 @@ package sarama
 
 import (
 	"context"
-
 	"github.com/IBM/sarama"
 	"github.com/vmyroslav/kafka-pulse-go/pulse"
 )

@@ -43,7 +43,7 @@ type HealthChecker struct {
 	stuckTimeout time.Duration
 }
 
-func NewHealthChecker(cfg Config, client BrokerClient, logger *slog.Logger) (*HealthChecker, error) {
+func NewHealthChecker(cfg Config, client BrokerClient) (*HealthChecker, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
@@ -52,8 +52,9 @@ func NewHealthChecker(cfg Config, client BrokerClient, logger *slog.Logger) (*He
 		return nil, errors.New("kafka client cannot be nil")
 	}
 
-	if logger == nil {
-		logger = slog.New(slog.DiscardHandler)
+	logger := slog.New(slog.DiscardHandler)
+	if cfg.Logger != nil {
+		logger = cfg.Logger
 	}
 
 	return &HealthChecker{
