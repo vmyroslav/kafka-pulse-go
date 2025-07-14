@@ -1,0 +1,25 @@
+/.DS_Store
+
+# Tools and IDEs
+/.idea/
+CLAUDE.md
+/.claude/
+
+# Build and output directories
+/bin/*
+
+# Secrets
+/.env
+
+/.serverless
+/terraform/.terraform.lock.hcl
+/terraform/.terraform/
+/unit.coverprofile
+/credentials.json
+
+# Tests and artifacts
+profile.cov
+
+# Development files
+release_notes.md
+/Taskfile.yml

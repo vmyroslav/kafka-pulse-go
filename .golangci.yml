@@ -1,0 +1,105 @@
+version: "2"
+run:
+  timeout: 5m
+linters:
+  default: none
+  enable:
+    - bodyclose
+    - containedctx
+    - copyloopvar
+    - cyclop
+    - dogsled
+    - dupl
+    - errcheck
+    - errchkjson
+    - errname
+    - exhaustive
+    - gochecknoinits
+    - goconst
+    - gocritic
+    - gocyclo
+    - gosec
+    - govet
+    - importas
+    - ineffassign
+    - interfacebloat
+    - loggercheck
+    - mirror
+    - misspell
+    - nakedret
+    - nestif
+    - noctx
+    - prealloc
+    - reassign
+    - revive
+    - sloglint
+    - staticcheck
+    - tagliatelle
+    - testifylint
+    - thelper
+    - tparallel
+    - unconvert
+    - unparam
+    - unused
+    - whitespace
+    - wrapcheck
+    - wsl_v5
+  settings:
+    errcheck:
+      check-type-assertions: true
+    goconst:
+      min-len: 2
+      min-occurrences: 2
+    gocritic:
+      enabled-tags:
+        - performance
+        - style
+        - experimental
+        - opinionated
+    govet:
+      enable:
+        - fieldalignment
+        - shadow
+    lll:
+      line-length: 140
+    misspell:
+      locale: US
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - staticcheck
+        text: at least one file in a package should have a package comment
+      - linters:
+          - revive
+        text: should have a package comment
+      - linters:
+          - revive
+        text: should have comment or be unexported
+      - linters:
+          - gocritic
+        text: whyNoLint
+      - linters:
+          - cyclop
+          - dupl
+          - gosec
+          - govet
+        path: _test\.go
+    paths:
+      - mock_.+\.go
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - mock_.+\.go
+      - third_party$
+      - builtin$
+      - examples$
