@@ -153,7 +153,17 @@ func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession,
 				ctx.Err(),
 			)
 
-			// release the monitor for the topic and partition
+			// --- IMPORTANT: Handling Rebalancing ---
+			// The session's context is canceled by Sarama when a consumer group rebalance
+			// starts or the session is otherwise closed. This signals that this consumer
+			// instance is losing its claim to this partition.
+			//
+			// You MUST call `monitor.Release()` to purge this partition's tracking data
+			// (last offset and timestamp) from this specific consumer's health monitor.
+			//
+			// Failure to do this would cause this instance to continue reporting stale
+			// health information for a partition it no longer owns, leading to false
+			// "stuck" alerts.
 			h.consumer.monitor.Release(ctx, claim.Topic(), claim.Partition())
 
 			return nil

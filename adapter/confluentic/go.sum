@@ -1,0 +1,4 @@
+github.com/confluentinc/confluent-kafka-go/v2 v2.11.0 h1:rsqfCqZXAHjWQp4TuRgiNPuW1BlF3xO/5+TsE9iHApw=
+github.com/confluentinc/confluent-kafka-go/v2 v2.11.0/go.mod h1:hScqtFIGUI1wqHIgM3mjoqEou4VweGGGX7dMpcUKves=
+github.com/vmyroslav/kafka-pulse-go v0.0.0-20250714201313-88c0f036e6c1 h1:SfQ/ufKAJnVKRz88YDquXoazIJfnbq5Jd/H7FeiPPJE=
+github.com/vmyroslav/kafka-pulse-go v0.0.0-20250714201313-88c0f036e6c1/go.mod h1:42s0C8VxJtwoUOU3zr03LEHEy1l/DH55cmzykmIjiTE=
