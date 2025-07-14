@@ -2,9 +2,12 @@ package sarama
 
 import (
 	"context"
+
 	"github.com/IBM/sarama"
 	"github.com/vmyroslav/kafka-pulse-go/pulse"
 )
+
+var _ pulse.TrackableMessage = (*Message)(nil)
 
 // Message wraps a sarama.ConsumerMessage to implement pulse.TrackableMessage
 type Message struct {

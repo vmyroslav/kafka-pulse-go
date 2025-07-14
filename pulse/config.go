@@ -7,8 +7,9 @@ import (
 )
 
 type Config struct {
-	Logger       *slog.Logger
-	StuckTimeout time.Duration
+	Logger             *slog.Logger
+	IgnoreBrokerErrors bool
+	StuckTimeout       time.Duration
 }
 
 func (c *Config) Validate() error {

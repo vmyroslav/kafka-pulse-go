@@ -37,10 +37,11 @@ type BrokerClient interface {
 }
 
 type HealthChecker struct {
-	client       BrokerClient
-	tracker      *tracker
-	logger       *slog.Logger
-	stuckTimeout time.Duration
+	client             BrokerClient
+	tracker            *tracker
+	logger             *slog.Logger
+	stuckTimeout       time.Duration
+	ignoreBrokerErrors bool
 }
 
 func NewHealthChecker(cfg Config, client BrokerClient) (*HealthChecker, error) {
@@ -58,10 +59,11 @@ func NewHealthChecker(cfg Config, client BrokerClient) (*HealthChecker, error) {
 	}
 
 	return &HealthChecker{
-		client:       client,
-		tracker:      newTracker(),
-		stuckTimeout: cfg.StuckTimeout,
-		logger:       logger,
+		client:             client,
+		tracker:            newTracker(),
+		stuckTimeout:       cfg.StuckTimeout,
+		logger:             logger,
+		ignoreBrokerErrors: cfg.IgnoreBrokerErrors,
 	}, nil
 }
 
@@ -74,21 +76,25 @@ func (h *HealthChecker) Healthy(ctx context.Context) (bool, error) {
 		for partition := range currentState[topic] {
 			offsetTimestamp := currentState[topic][partition]
 			if now.Sub(offsetTimestamp.Timestamp) > h.stuckTimeout {
-				// Timeout exceeded - need to check if consumer is truly stuck
+				// timeout exceeded - need to check if consumer is truly stuck
 				// by comparing with latest broker offset
 				latestOffset, err := h.client.GetLatestOffset(ctx, topic, partition)
 				if err != nil {
 					h.logger.Error("failed to get latest offset from broker",
 						"topic", topic, "partition", partition, "error", err)
-					// Don't fail the health check on a transient broker error.
-					// A persistent error will eventually be caught by other monitoring.
-					continue
+
+					if h.ignoreBrokerErrors {
+						// don't fail the health check on a transient broker error
+						continue
+					}
+
+					// fail the health check on broker error
+					return false, fmt.Errorf("failed to get latest offset from broker: %w", err)
 				}
 
-				// Convert to actual latest message offset (OffsetNewest returns next offset)
 				latestMessageOffset := latestOffset - 1
 
-				// Consumer is stuck if it's behind available messages
+				// consumer is stuck if it's behind available messages
 				if offsetTimestamp.Offset < latestMessageOffset {
 					h.logger.Warn("consumer stuck behind available messages",
 						"topic", topic,
@@ -101,7 +107,8 @@ func (h *HealthChecker) Healthy(ctx context.Context) (bool, error) {
 
 					return false, nil
 				}
-				// Consumer is caught up, just idle
+
+				// consumer is caught up, just idle
 				h.logger.Info("Consumer idle but caught up",
 					"topic", topic,
 					"partition", partition,
