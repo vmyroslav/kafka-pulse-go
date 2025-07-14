@@ -1,3 +1,3 @@
-module github.com/vmyroslav/go-template
+module github.com/vmyroslav/kafka-pulse-go
 
 go 1.24
