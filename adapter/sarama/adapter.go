@@ -14,6 +14,12 @@ type Message struct {
 	*sarama.ConsumerMessage
 }
 
+func NewMessage(msg *sarama.ConsumerMessage) pulse.TrackableMessage {
+	return &Message{
+		ConsumerMessage: msg,
+	}
+}
+
 func (m *Message) Topic() string {
 	return m.ConsumerMessage.Topic
 }
