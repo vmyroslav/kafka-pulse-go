@@ -2,10 +2,10 @@ package confluentic
 
 import (
 	"context"
-	"time"
-
+	"fmt"
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/vmyroslav/kafka-pulse-go/pulse"
+	"time"
 )
 
 var _ pulse.TrackableMessage = (*Message)(nil)
@@ -38,34 +38,74 @@ func (m *Message) Offset() int64 {
 	return int64(m.Message.TopicPartition.Offset)
 }
 
-// clientAdapter wraps a Confluent Kafka AdminClient to implement pulse.BrokerClient
+// clientAdapter implements the pulse.BrokerClient. It holds the Kafka
+// configuration needed to create a temporary client for metadata queries.
 type clientAdapter struct {
-	adminClient *kafka.AdminClient
+	config *kafka.ConfigMap
 }
 
-// NewClientAdapter creates a new BrokerClient adapter for a confluent-kafka-go AdminClient
-func NewClientAdapter(adminClient *kafka.AdminClient) pulse.BrokerClient {
-	return &clientAdapter{adminClient: adminClient}
+// NewClientAdapter creates a new BrokerClient adapter.
+// It requires a kafka.ConfigMap containing at least the "bootstrap.servers".
+func NewClientAdapter(config *kafka.ConfigMap) pulse.BrokerClient {
+	return &clientAdapter{config: config}
 }
 
-// GetLatestOffset fetches the newest available offset (the high watermark) for a topic-partition
 func (c *clientAdapter) GetLatestOffset(ctx context.Context, topic string, partition int32) (int64, error) {
-	// derive a timeout from the context for the GetWatermarkOffsets call
-	timeout := 10 * time.Second
-	if deadline, ok := ctx.Deadline(); ok {
-		if newTimeout := time.Until(deadline); newTimeout > 0 {
-			timeout = newTimeout
-		} else {
-			return 0, context.DeadlineExceeded
-		}
+	// Create a temporary producer for the sole purpose of this query.
+	p, err := kafka.NewProducer(c.config)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create temporary producer for watermark query: %w", err)
 	}
+	defer p.Close()
 
-	// the high watermark is the offset of the next message to be produced
-	_, high, err := c.adminClient.GetWatermarkOffsets(topic, partition, int(timeout.Milliseconds()))
+	// Use a timeout from the context.
+	timeout, err := contextToTimeout(ctx)
 	if err != nil {
 		return 0, err
 	}
 
-	// to get the offset of the last actual message, subtract 1 from the high watermark
+	// QueryWatermarkOffsets is the correct method on a producer.
+	_, high, err := p.QueryWatermarkOffsets(topic, partition, timeout)
+	if err != nil {
+		return 0, err
+	}
+
+	// High watermark - 1 is the offset of the last existing message.
+	return high - 1, nil
+}
+
+// contextToTimeout is a helper to convert a context deadline to a timeout in milliseconds.
+func contextToTimeout(ctx context.Context) (int, error) {
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return 10000, nil // Default to 10 seconds
+	}
+
+	timeout := time.Until(deadline)
+	if timeout < 0 {
+		return 0, context.DeadlineExceeded
+	}
+
+	return int(timeout.Milliseconds()), nil
+}
+
+// consumerClientAdapter is the internal struct for the Consumer implementation.
+type consumerClientAdapter struct {
+	consumer *kafka.Consumer
+}
+
+// NewFromConsumer creates the adapter using a kafka.Consumer.
+func NewFromConsumer(consumer *kafka.Consumer) pulse.BrokerClient {
+	return &consumerClientAdapter{consumer: consumer}
+}
+
+// GetLatestOffset fetches the watermark using the Consumer.
+func (c *consumerClientAdapter) GetLatestOffset(ctx context.Context, topic string, partition int32) (int64, error) {
+	// The consumer's GetWatermarkOffsets does not accept a context.
+	_, high, err := c.consumer.GetWatermarkOffsets(topic, partition)
+	if err != nil {
+		return 0, err
+	}
+
 	return high - 1, nil
 }

@@ -32,7 +32,9 @@ type Monitor interface {
 }
 
 type BrokerClient interface {
-	// GetLatestOffset fetches the newest available offset for a topic partition.
+	// GetLatestOffset fetches the offset of the latest actual message for a topic partition.
+	// It should return the high watermark minus 1, representing the offset of the last committed message.
+	// For empty partitions, should return -1.
 	GetLatestOffset(ctx context.Context, topic string, partition int32) (int64, error)
 }
 
@@ -92,15 +94,13 @@ func (h *HealthChecker) Healthy(ctx context.Context) (bool, error) {
 					return false, fmt.Errorf("failed to get latest offset from broker: %w", err)
 				}
 
-				latestMessageOffset := latestOffset - 1
-
 				// consumer is stuck if it's behind available messages
-				if offsetTimestamp.Offset < latestMessageOffset {
+				if offsetTimestamp.Offset < latestOffset {
 					h.logger.Warn("consumer stuck behind available messages",
 						"topic", topic,
 						"partition", partition,
 						"consumerOffset", offsetTimestamp.Offset,
-						"latestOffset", latestMessageOffset,
+						"latestOffset", latestOffset,
 						"lastUpdate", offsetTimestamp.Timestamp,
 						"timeout", h.stuckTimeout,
 					)

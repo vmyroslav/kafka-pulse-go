@@ -265,11 +265,11 @@ func TestHealthChecker_Healthy_IdleConsumer(t *testing.T) {
 		StuckTimeout: 100 * time.Millisecond,
 	}
 
-	// mock broker where consumer is caught up (latest offset = consumer offset + 1)
+	// mock broker where consumer is caught up (latest offset = consumer offset)
 	client := &mockBrokerClient{
 		offsets: map[string]map[int32]int64{
 			"test-topic": {
-				0: 101, // Latest offset is 101, consumer is at 100 (caught up)
+				0: 100, // Latest offset is 100, consumer is at 100 (caught up)
 			},
 		},
 	}

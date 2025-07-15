@@ -171,14 +171,29 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	logger.Info("Application started",
+	logger.Info("🚀 Application started",
 		"topic", topic,
 		"consumer_group", consumerGroup,
-		"health_port", healthPort)
-	logger.Info("Health endpoints available:",
+		"health_port", healthPort,
+		"stuck_timeout", "10s")
+
+	logger.Info("📊 Health endpoints available:",
 		"health", "http://localhost:"+healthPort+"/health",
 		"readiness", "http://localhost:"+healthPort+"/health/ready",
 		"liveness", "http://localhost:"+healthPort+"/health/live")
+
+	logger.Info("🎛️  Control endpoints for stuck consumer demo:",
+		"pause", "curl -X POST http://localhost:"+healthPort+"/control/pause",
+		"resume", "curl -X POST http://localhost:"+healthPort+"/control/resume",
+		"slow", "curl -X POST http://localhost:"+healthPort+"/control/slow -H 'Content-Type: application/json' -d '{\"delay\":\"5s\"}'",
+		"status", "curl http://localhost:"+healthPort+"/control/status")
+
+	logger.Info("🔍 Demo Instructions:",
+		"step1", "Wait for consumer to process initial messages (healthy status)",
+		"step2", "Run pause command to simulate stuck consumer",
+		"step3", "Watch health checks transition from healthy ✅ to unhealthy ❌ after 10s",
+		"step4", "Run resume command to recover consumer",
+		"step5", "Watch health checks return to healthy ✅")
 
 	<-sigChan
 	logger.Info("Shutting down...")
