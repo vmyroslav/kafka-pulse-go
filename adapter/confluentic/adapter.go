@@ -39,8 +39,8 @@ func (m *Message) Offset() int64 {
 	return int64(m.Message.TopicPartition.Offset)
 }
 
-// clientAdapter implements the pulse.BrokerClient. It holds the Kafka
-// configuration needed to create a temporary client for metadata queries.
+// clientAdapter implements the pulse.BrokerClient interface.
+// It holds the Kafka configuration needed to create a temporary producer for querying partition watermarks.
 type clientAdapter struct {
 	config *kafka.ConfigMap
 }
@@ -52,26 +52,25 @@ func NewClientAdapter(config *kafka.ConfigMap) pulse.BrokerClient {
 }
 
 func (c *clientAdapter) GetLatestOffset(ctx context.Context, topic string, partition int32) (int64, error) {
-	// Create a temporary producer for the sole purpose of this query.
+	// create a temporary producer
 	p, err := kafka.NewProducer(c.config)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create temporary producer for watermark query: %w", err)
 	}
 	defer p.Close()
 
-	// Use a timeout from the context.
+	// use a timeout from the context
 	timeout, err := contextToTimeout(ctx)
 	if err != nil {
 		return 0, err
 	}
 
-	// QueryWatermarkOffsets is the correct method on a producer.
 	_, high, err := p.QueryWatermarkOffsets(topic, partition, timeout)
 	if err != nil {
 		return 0, err
 	}
 
-	// High watermark - 1 is the offset of the last existing message.
+	// high watermark - 1 is the offset of the last existing message
 	return high - 1, nil
 }
 
@@ -79,7 +78,7 @@ func (c *clientAdapter) GetLatestOffset(ctx context.Context, topic string, parti
 func contextToTimeout(ctx context.Context) (int, error) {
 	deadline, ok := ctx.Deadline()
 	if !ok {
-		return 10000, nil // Default to 10 seconds
+		return 5000, nil // default to 5 seconds
 	}
 
 	timeout := time.Until(deadline)
@@ -88,25 +87,4 @@ func contextToTimeout(ctx context.Context) (int, error) {
 	}
 
 	return int(timeout.Milliseconds()), nil
-}
-
-// consumerClientAdapter is the internal struct for the Consumer implementation.
-type consumerClientAdapter struct {
-	consumer *kafka.Consumer
-}
-
-// NewFromConsumer creates the adapter using a kafka.Consumer.
-func NewFromConsumer(consumer *kafka.Consumer) pulse.BrokerClient {
-	return &consumerClientAdapter{consumer: consumer}
-}
-
-// GetLatestOffset fetches the watermark using the Consumer.
-func (c *consumerClientAdapter) GetLatestOffset(ctx context.Context, topic string, partition int32) (int64, error) {
-	// The consumer's GetWatermarkOffsets does not accept a context.
-	_, high, err := c.consumer.GetWatermarkOffsets(topic, partition)
-	if err != nil {
-		return 0, err
-	}
-
-	return high - 1, nil
 }
