@@ -30,7 +30,7 @@ func (t *tracker) track(m TrackableMessage) {
 	existing := t.topicPartitionOffsets[m.Topic()][m.Partition()]
 
 	// only update timestamp if offset has changed to handle poison-pill messages
-	if existing.Offset != m.Offset() {
+	if existing.Offset != m.Offset() || existing.Timestamp.IsZero() {
 		t.topicPartitionOffsets[m.Topic()][m.Partition()] = OffsetTimestamp{
 			Offset:    m.Offset(),
 			Timestamp: time.Now(),

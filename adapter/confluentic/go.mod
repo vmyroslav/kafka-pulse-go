@@ -8,6 +8,10 @@ require (
 	github.com/vmyroslav/kafka-pulse-go v0.0.0-20250714201313-88c0f036e6c1
 )
 
+replace (
+	github.com/vmyroslav/kafka-pulse-go => ../..
+)
+
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect

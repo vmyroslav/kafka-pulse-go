@@ -3,9 +3,10 @@ package confluentic
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
 	"github.com/vmyroslav/kafka-pulse-go/pulse"
-	"time"
 )
 
 var _ pulse.TrackableMessage = (*Message)(nil)
