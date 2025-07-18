@@ -18,9 +18,86 @@ tasks:
     cmds:
       - golangci-lint run -c .golangci.yml
   test:
-    desc: Run tests with coverage
+    desc: Run all tests with coverage
+    deps:
+      - test:core
+      - test:confluentic
+      - test:sarama
+      - test:segmentio
+
+  test:core:
+    desc: Run core library tests
     cmds:
       - go test -timeout=60s -race -covermode=atomic -coverprofile=profile.cov ./...
+
+  test:confluentic:
+    desc: Run confluentic adapter tests (unit + integration)
+    deps:
+      - test:confluentic:unit
+      - test:confluentic:integration
+
+  test:sarama:
+    desc: Run sarama adapter tests (unit + integration)
+    deps:
+      - test:sarama:unit
+      - test:sarama:integration
+
+  test:segmentio:
+    desc: Run segmentio adapter tests (unit + integration)
+    deps:
+      - test:segmentio:unit
+      - test:segmentio:integration
+
+  test:unit:
+    desc: Run only unit tests
+    deps:
+      - test:core
+      - test:confluentic:unit
+      - test:sarama:unit
+      - test:segmentio:unit
+
+  test:integration:
+    desc: Run only integration tests
+    deps:
+      - test:confluentic:integration
+      - test:sarama:integration
+      - test:segmentio:integration
+
+  test:confluentic:unit:
+    desc: Run confluentic unit tests (mock cluster)
+    dir: adapter/confluentic
+    cmds:
+      - go test -timeout=60s -race -covermode=atomic -coverprofile=profile.unit.cov adapter_test.go adapter.go
+
+  test:confluentic:integration:
+    desc: Run confluentic integration tests (real containers)
+    dir: adapter/confluentic
+    cmds:
+      - go test -timeout=300s -race -covermode=atomic -coverprofile=profile.integration.cov adapter_integration_test.go adapter.go
+
+  test:sarama:unit:
+    desc: Run sarama unit tests (no containers)
+    dir: adapter/sarama
+    cmds:
+      - go test -timeout=60s -race -covermode=atomic -coverprofile=profile.unit.cov adapter_test.go mock_integration_test.go adapter.go
+
+  test:sarama:integration:
+    desc: Run sarama integration tests (real containers)
+    dir: adapter/sarama
+    cmds:
+      - go test -timeout=300s -race -covermode=atomic -coverprofile=profile.integration.cov adapter_integration_test.go adapter.go
+
+  test:segmentio:unit:
+    desc: Run segmentio unit tests (no containers)
+    dir: adapter/segmentio
+    cmds:
+      - go test -timeout=60s -race -covermode=atomic -coverprofile=profile.unit.cov adapter_test.go adapter.go
+
+  test:segmentio:integration:
+    desc: Run segmentio integration tests (real containers)
+    dir: adapter/segmentio
+    cmds:
+      - go test -timeout=300s -race -covermode=atomic -coverprofile=profile.integration.cov adapter_integration_test.go adapter.go
   fmt:
     desc: Format project files
     cmds:

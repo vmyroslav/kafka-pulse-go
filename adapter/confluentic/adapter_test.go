@@ -221,6 +221,10 @@ func TestHealthChecker_WithClientAdapter(t *testing.T) {
 		t.Parallel()
 
 		topic := fmt.Sprintf("live-consumer-topic-%d", 1)
+
+		err = mockCluster.CreateTopic(topic, 1, 1)
+		require.NoError(t, err)
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
