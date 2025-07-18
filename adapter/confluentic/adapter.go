@@ -9,7 +9,10 @@ import (
 	"github.com/vmyroslav/kafka-pulse-go/pulse"
 )
 
-var _ pulse.TrackableMessage = (*Message)(nil)
+var (
+	_ pulse.TrackableMessage = (*Message)(nil)
+	_ pulse.BrokerClient     = (*clientAdapter)(nil)
+)
 
 // Message wraps a kafka.Message to implement the pulse.TrackableMessage interface
 type Message struct {

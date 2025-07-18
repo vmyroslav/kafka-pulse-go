@@ -1,4 +1,4 @@
-module github.com/vmyroslav/kafka-pulse-go/examples/testcontainers
+module github.com/vmyroslav/kafka-pulse-go/examples/sarama/testcontainers
 
 go 1.24.4
 
@@ -73,6 +73,6 @@ require (
 	golang.org/x/sys v0.33.0 // indirect
 )
 
-replace github.com/vmyroslav/kafka-pulse-go => ../..
+replace github.com/vmyroslav/kafka-pulse-go => ./../../..
 
-replace github.com/vmyroslav/kafka-pulse-go/adapter/sarama => ../../adapter/sarama
+replace github.com/vmyroslav/kafka-pulse-go/adapter/sarama => ./../../../adapter/sarama
