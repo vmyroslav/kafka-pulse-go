@@ -2,6 +2,7 @@ package segmentio_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -19,74 +20,13 @@ import (
 )
 
 var (
-	dockerImage = "confluentinc/confluent-local:7.5.0"
+	dockerImage = "confluentinc/confluent-local:7.8.3"
 	brokers     []string
 )
-
-// Helper function to create a topic
-func createTopic(topicName string, partitions int) {
-	conn, err := kafka.Dial("tcp", brokers[0])
-	if err != nil {
-		panic(fmt.Sprintf("Failed to connect to Kafka: %v", err))
-	}
-	defer conn.Close()
-
-	controller, err := conn.Controller()
-	if err != nil {
-		panic(fmt.Sprintf("Failed to get controller: %v", err))
-	}
-	controllerConn, err := kafka.Dial("tcp", fmt.Sprintf("%s:%d", controller.Host, controller.Port))
-	if err != nil {
-		panic(fmt.Sprintf("Failed to connect to controller: %v", err))
-	}
-	defer controllerConn.Close()
-
-	topicConfig := kafka.TopicConfig{
-		Topic:             topicName,
-		NumPartitions:     partitions,
-		ReplicationFactor: 1,
-	}
-
-	err = controllerConn.CreateTopics(topicConfig)
-	if err != nil {
-		// Check if it's already exists error, which is ok
-		if !strings.Contains(err.Error(), "already exists") {
-			log.Printf("Topic creation error for %s: %v", topicName, err)
-		} else {
-			log.Printf("Topic %s already exists", topicName)
-		}
-	} else {
-		log.Printf("Successfully created topic %s with %d partitions", topicName, partitions)
-	}
-
-	// Wait for topic metadata to propagate to all brokers by checking topic availability
-	adapter := segmentioadapter.NewClientAdapter(brokers)
-	ctx := context.Background()
-
-	// Use a loop with timeout instead of fixed sleep
-	timeout := time.After(5 * time.Second)
-	ticker := time.NewTicker(100 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-timeout:
-			log.Printf("Warning: Topic %s may not be fully available after 5s timeout", topicName)
-			return
-		case <-ticker.C:
-			_, err := adapter.GetLatestOffset(ctx, topicName, 0)
-			if err == nil {
-				log.Printf("Topic %s is now available", topicName)
-				return
-			}
-		}
-	}
-}
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 
-	// Start Kafka container
 	kafkaContainer, err := kafkacontainer.Run(ctx, dockerImage,
 		kafkacontainer.WithClusterID("test-cluster"),
 	)
@@ -219,7 +159,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 
 	t.Run("should be unhealthy when stale and lagging behind", func(t *testing.T) {
 		topic := "segmentio-stuck-topic"
-		createTopic(topic, 1)
+		createTopic(t, topic, 1)
 
 		brokerClient := segmentioadapter.NewClientAdapter(brokers)
 
@@ -272,7 +212,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 
 	t.Run("a running consumer should be unhealthy when it gets stuck", func(t *testing.T) {
 		topic := fmt.Sprintf("live-consumer-topic-%d", time.Now().UnixNano())
-		createTopic(topic, 1)
+		createTopic(t, topic, 1)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -376,7 +316,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 
 	t.Run("should be healthy when idle but caught up", func(t *testing.T) {
 		topic := "segmentio-idle-topic"
-		createTopic(topic, 1)
+		createTopic(t, topic, 1)
 
 		hc, _ := pulse.NewHealthChecker(pulse.Config{StuckTimeout: 100 * time.Millisecond}, segmentioadapter.NewClientAdapter(brokers))
 
@@ -411,7 +351,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 	t.Run("multi-partition tracking - should be healthy when all partitions are caught up", func(t *testing.T) {
 		topic := "segmentio-multi-partition-healthy-topic"
 		numPartitions := 3
-		createTopic(topic, numPartitions)
+		createTopic(t, topic, numPartitions)
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
@@ -457,7 +397,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 	t.Run("multi-partition tracking - should be unhealthy when one partition is stuck", func(t *testing.T) {
 		topic := "segmentio-multi-partition-stuck-topic"
 		numPartitions := 3
-		createTopic(topic, numPartitions)
+		createTopic(t, topic, numPartitions)
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
@@ -516,7 +456,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 
 	t.Run("multi-partition tracking - should handle mixed partition states correctly", func(t *testing.T) {
 		topic := "segmentio-multi-partition-mixed-topic"
-		createTopic(topic, 3)
+		createTopic(t, topic, 3)
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
@@ -603,9 +543,155 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 	t.Parallel()
 	ctx := context.Background()
 
+	t.Run("consumer group processing messages with health monitoring", func(t *testing.T) {
+		topic := fmt.Sprintf("segmentio-real-consumer-group-%d", time.Now().UnixNano())
+		createTopic(t, topic, 2)
+
+		hc, err := pulse.NewHealthChecker(
+			pulse.Config{StuckTimeout: 100 * time.Millisecond},
+			segmentioadapter.NewClientAdapter(brokers),
+		)
+		require.NoError(t, err)
+
+		writer := &kafka.Writer{
+			Addr:                   kafka.TCP(brokers[0]),
+			Balancer:               &kafka.LeastBytes{},
+			AllowAutoTopicCreation: true,
+		}
+		defer func(writer *kafka.Writer) {
+			_ = writer.Close()
+		}(writer)
+
+		groupID := fmt.Sprintf("real-test-group-%s", topic)
+		reader := kafka.NewReader(kafka.ReaderConfig{
+			Brokers:  brokers,
+			Topic:    topic,
+			GroupID:  groupID,
+			MinBytes: 1,
+			MaxBytes: 10e6,
+		})
+		defer func(reader *kafka.Reader) {
+			_ = reader.Close()
+		}(reader)
+
+		// produce messages to multiple partitions
+		var messages []kafka.Message
+		for partition := 0; partition < 2; partition++ {
+			for i := 0; i < 3; i++ {
+				messages = append(messages, kafka.Message{
+					Topic:     topic,
+					Partition: partition,
+					Key:       []byte(fmt.Sprintf("key-p%d-%d", partition, i)),
+					Value:     []byte(fmt.Sprintf("message-p%d-%d", partition, i)),
+				})
+			}
+		}
+		err = writer.WriteMessages(ctx, messages...)
+		require.NoError(t, err)
+
+		processedCount := 0
+		expectedCount := len(messages)
+		consumerCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+
+		for processedCount < expectedCount {
+			msg, err := reader.ReadMessage(consumerCtx)
+			if err != nil {
+				if errors.Is(err, context.DeadlineExceeded) {
+					break
+				}
+				require.NoError(t, err, "failed to read message")
+			}
+
+			// track each message with health checker
+			hc.Track(ctx, segmentioadapter.NewMessage(msg))
+			processedCount++
+		}
+
+		require.Equal(t, expectedCount, processedCount, "should process all produced messages")
+
+		healthy, err := hc.Healthy(ctx)
+		assert.NoError(t, err)
+		assert.True(t, healthy, "Consumer should be healthy after processing all messages")
+	})
+
+	t.Run("consumer group with stuck consumer detection", func(t *testing.T) {
+		topic := fmt.Sprintf("segmentio-real-stuck-consumer-%d", time.Now().UnixNano())
+		createTopic(t, topic, 1)
+
+		hc, err := pulse.NewHealthChecker(
+			pulse.Config{StuckTimeout: 100 * time.Millisecond},
+			segmentioadapter.NewClientAdapter(brokers),
+		)
+		require.NoError(t, err)
+
+		// set up producer
+		writer := &kafka.Writer{
+			Addr:                   kafka.TCP(brokers[0]),
+			Balancer:               &kafka.LeastBytes{},
+			AllowAutoTopicCreation: true,
+		}
+		defer func(writer *kafka.Writer) {
+			_ = writer.Close()
+		}(writer)
+
+		// set up consumer group
+		groupID := fmt.Sprintf("real-stuck-test-group-%s", topic)
+		reader := kafka.NewReader(kafka.ReaderConfig{
+			Brokers:   brokers,
+			Topic:     topic,
+			GroupID:   groupID,
+			Partition: 0,
+			MinBytes:  1,
+			MaxBytes:  10e6,
+		})
+		defer func(reader *kafka.Reader) {
+			_ = reader.Close()
+		}(reader)
+
+		// produce first message
+		err = writer.WriteMessages(ctx, kafka.Message{
+			Topic:     topic,
+			Partition: 0,
+			Value:     []byte("first message"),
+		})
+		require.NoError(t, err)
+
+		// consumer reads and tracks first message
+		consumerCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+
+		msg, err := reader.ReadMessage(consumerCtx)
+		require.NoError(t, err, "Failed to read first message")
+
+		// track first message with health checker
+		hc.Track(ctx, segmentioadapter.NewMessage(msg))
+		t.Logf("Tracked first message at offset %d", msg.Offset)
+
+		// consumer should be healthy after processing first message
+		assert.Eventually(t, func() bool {
+			healthy, err := hc.Healthy(ctx)
+			return err == nil && healthy
+		}, 200*time.Millisecond, 20*time.Millisecond, "Consumer should be healthy after first message")
+
+		// produce second message (consumer will NOT process this)
+		err = writer.WriteMessages(ctx, kafka.Message{
+			Topic:     topic,
+			Partition: 0,
+			Value:     []byte("second message - consumer stuck"),
+		})
+		require.NoError(t, err)
+
+		// health checker should detect consumer is stuck and unhealthy
+		assert.Eventually(t, func() bool {
+			healthy, err := hc.Healthy(ctx)
+			return err == nil && !healthy
+		}, 3*time.Second, 100*time.Millisecond, "Health checker should detect stuck consumer as unhealthy")
+	})
+
 	t.Run("consumer should track multiple partitions independently", func(t *testing.T) {
 		topic := "segmentio-multi-partition-consumer-topic"
-		createTopic(topic, 2)
+		createTopic(t, topic, 2)
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
@@ -655,7 +741,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 
 	t.Run("consumer group rebalancing scenario - should handle partition reassignment", func(t *testing.T) {
 		topic := "segmentio-rebalance-topic"
-		createTopic(topic, 3)
+		createTopic(t, topic, 3)
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
@@ -684,10 +770,10 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 		err = writer.WriteMessages(ctx, messages...)
 		require.NoError(t, err)
 
-		// Check what the actual latest offsets are for each partition
+		// check what the actual latest offsets are for each partition
 		adapter := segmentioadapter.NewClientAdapter(brokers)
 
-		// Wait for messages to be committed by checking offsets
+		// wait for messages to be committed by checking offsets
 		assert.Eventually(t, func() bool {
 			for p := int32(0); p < 3; p++ {
 				latestOffset, err := adapter.GetLatestOffset(ctx, topic, p)
@@ -705,7 +791,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 			require.NoError(t, err)
 			t.Logf("Partition %d latest offset: %d", p, latestOffset)
 
-			// Track the latest message for each partition
+			// track the latest message for each partition
 			hc.Track(ctx, segmentioadapter.NewMessage(kafka.Message{
 				Topic:     topic,
 				Partition: int(p),
@@ -722,7 +808,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 		hc.Release(ctx, topic, 1)
 		hc.Release(ctx, topic, 2)
 
-		// Update partition 0 tracking to ensure it stays current
+		// update partition 0 tracking to ensure it stays current
 		latestOffset0, err := adapter.GetLatestOffset(ctx, topic, 0)
 		require.NoError(t, err)
 		hc.Track(ctx, segmentioadapter.NewMessage(kafka.Message{
@@ -752,8 +838,8 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 		)
 		require.NoError(t, err)
 
-		// Update partition 0 tracking again to ensure it stays current for final check
-		// Wait for new messages to be committed by checking offset updates
+		// update partition 0 tracking again to ensure it stays current for final check
+		// wait for new messages to be committed by checking offset updates
 		assert.Eventually(t, func() bool {
 			var err error
 			latestOffset0, err = adapter.GetLatestOffset(ctx, topic, 0)
@@ -776,7 +862,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 
 	t.Run("backpressure scenario - slow consumer should be detected as unhealthy", func(t *testing.T) {
 		topic := "segmentio-backpressure-topic"
-		createTopic(topic, 1)
+		createTopic(t, topic, 1)
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
@@ -831,4 +917,62 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 		assert.NoError(t, err)
 		assert.True(t, healthy, "consumer should be healthy after catching up")
 	})
+}
+
+func createTopic(t *testing.T, topicName string, partitions int) {
+	t.Helper()
+
+	conn, err := kafka.Dial("tcp", brokers[0])
+	if err != nil {
+		t.Fatalf("Failed to connect to Kafka: %v", err)
+	}
+	defer conn.Close()
+
+	controller, err := conn.Controller()
+	if err != nil {
+		t.Fatalf("Failed to get controller: %v", err)
+	}
+	controllerConn, err := kafka.Dial("tcp", fmt.Sprintf("%s:%d", controller.Host, controller.Port))
+	if err != nil {
+		t.Fatalf("Failed to connect to controller: %v", err)
+	}
+	defer func(controllerConn *kafka.Conn) {
+		_ = controllerConn.Close()
+	}(controllerConn)
+
+	topicConfig := kafka.TopicConfig{
+		Topic:             topicName,
+		NumPartitions:     partitions,
+		ReplicationFactor: 1,
+	}
+
+	err = controllerConn.CreateTopics(topicConfig)
+	if err != nil {
+		// check if it's already exists error, which is ok
+		if !strings.Contains(err.Error(), "already exists") {
+			t.Fatalf("Topic creation error for %s: %v", topicName, err)
+		} else {
+			t.Logf("Topic %s already exists", topicName)
+		}
+	}
+
+	// wait for topic metadata to propagate to all brokers by checking topic availability
+	adapter := segmentioadapter.NewClientAdapter(brokers)
+	ctx := context.Background()
+
+	timeout := time.After(5 * time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeout:
+			t.Fatalf("Timeout: Topic %s not available", topicName)
+		case <-ticker.C:
+			_, err = adapter.GetLatestOffset(ctx, topicName, 0)
+			if err == nil {
+				return
+			}
+		}
+	}
 }
