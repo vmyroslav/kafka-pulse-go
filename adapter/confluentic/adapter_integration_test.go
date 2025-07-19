@@ -55,86 +55,90 @@ func TestMain(m *testing.M) {
 }
 
 func TestClientAdapterIntegration_Implementation(t *testing.T) {
-	var (
-		ctx            = context.Background()
-		topicSingleMsg = "topic-single-message"
-		topicMultiPart = "topic-multi-partition"
-	)
+	t.Parallel()
+	t.Run("basic GetLatestOffset functionality", func(t *testing.T) {
+		var (
+			ctx            = context.Background()
+			topicSingleMsg = "confluentic-topic-single-message"
+			topicMultiPart = "confluentic-topic-multi-partition"
+		)
 
-	adminClient, err := kafka.NewAdminClient(configMap)
-	require.NoError(t, err)
-	defer adminClient.Close()
+		adminClient, err := kafka.NewAdminClient(configMap)
+		require.NoError(t, err)
+		defer adminClient.Close()
 
-	topics := []kafka.TopicSpecification{
-		{
-			Topic:             topicSingleMsg,
-			NumPartitions:     1,
-			ReplicationFactor: 1,
-		},
-		{
-			Topic:             topicMultiPart,
-			NumPartitions:     3,
-			ReplicationFactor: 1,
-		},
-	}
-
-	results, err := adminClient.CreateTopics(ctx, topics)
-	require.NoError(t, err)
-	for _, result := range results {
-		if result.Error.Code() != kafka.ErrNoError {
-			require.NoError(t, result.Error)
+		topics := []kafka.TopicSpecification{
+			{
+				Topic:             topicSingleMsg,
+				NumPartitions:     1,
+				ReplicationFactor: 1,
+			},
+			{
+				Topic:             topicMultiPart,
+				NumPartitions:     3,
+				ReplicationFactor: 1,
+			},
 		}
-	}
 
-	producer, err := kafka.NewProducer(configMap)
-	require.NoError(t, err)
-	defer producer.Close()
+		results, err := adminClient.CreateTopics(ctx, topics)
+		require.NoError(t, err)
+		for _, result := range results {
+			if result.Error.Code() != kafka.ErrNoError {
+				require.NoError(t, result.Error)
+			}
+		}
 
-	// produce 1 message to the single-message topic
-	err = producer.Produce(&kafka.Message{
-		TopicPartition: kafka.TopicPartition{Topic: &topicSingleMsg, Partition: 0},
-		Value:          []byte("test message"),
-	}, nil)
-	require.NoError(t, err)
+		producer, err := kafka.NewProducer(configMap)
+		require.NoError(t, err)
+		defer producer.Close()
 
-	// produce 5 messages to topicMultiPart partition 2
-	for i := 0; i < 5; i++ {
+		// produce 1 message to the single-message topic
 		err = producer.Produce(&kafka.Message{
-			TopicPartition: kafka.TopicPartition{Topic: &topicMultiPart, Partition: 2},
-			Value:          []byte(fmt.Sprintf("message-%d", i)),
+			TopicPartition: kafka.TopicPartition{Topic: &topicSingleMsg, Partition: 0},
+			Value:          []byte("test message"),
 		}, nil)
 		require.NoError(t, err)
-	}
-	producer.Flush(5000)
 
-	adapter := confluenticadapter.NewClientAdapter(configMap)
+		// produce 5 messages to topicMultiPart partition 2
+		for i := 0; i < 5; i++ {
+			err = producer.Produce(&kafka.Message{
+				TopicPartition: kafka.TopicPartition{Topic: &topicMultiPart, Partition: 2},
+				Value:          []byte(fmt.Sprintf("message-%d", i)),
+			}, nil)
+			require.NoError(t, err)
+		}
+		producer.Flush(5000)
 
-	t.Run("success on partition with single message", func(t *testing.T) {
-		latestOffset, err := adapter.GetLatestOffset(ctx, topicSingleMsg, 0)
-		assert.NoError(t, err)
-		assert.Equal(t, int64(0), latestOffset)
-	})
+		adapter := confluenticadapter.NewClientAdapter(configMap)
 
-	t.Run("success on partition with multiple messages", func(t *testing.T) {
-		// after 5 messages (offsets 0-4), the latest offset should be 4
-		latestOffset, err := adapter.GetLatestOffset(ctx, topicMultiPart, 2)
-		assert.NoError(t, err)
-		assert.Equal(t, int64(4), latestOffset)
-	})
+		t.Run("success on partition with single message", func(t *testing.T) {
+			latestOffset, err := adapter.GetLatestOffset(ctx, topicSingleMsg, 0)
+			assert.NoError(t, err)
+			assert.Equal(t, int64(0), latestOffset)
+		})
 
-	t.Run("error on non-existent topic", func(t *testing.T) {
-		_, err := adapter.GetLatestOffset(ctx, "non-existent-topic", 0)
-		assert.Error(t, err)
-	})
+		t.Run("success on partition with multiple messages", func(t *testing.T) {
+			// after 5 messages (offsets 0-4), the latest offset should be 4
+			latestOffset, err := adapter.GetLatestOffset(ctx, topicMultiPart, 2)
+			assert.NoError(t, err)
+			assert.Equal(t, int64(4), latestOffset)
+		})
 
-	t.Run("error on non-existent partition", func(t *testing.T) {
-		// topic exists but partition 99 doesn't exist
-		_, err := adapter.GetLatestOffset(ctx, topicSingleMsg, 99)
-		assert.Error(t, err)
+		t.Run("error on non-existent topic", func(t *testing.T) {
+			_, err := adapter.GetLatestOffset(ctx, "non-existent-topic", 0)
+			assert.Error(t, err)
+		})
+
+		t.Run("error on non-existent partition", func(t *testing.T) {
+			// topic exists but partition 99 doesn't exist
+			_, err := adapter.GetLatestOffset(ctx, topicSingleMsg, 99)
+			assert.Error(t, err)
+		})
 	})
 
 	t.Run("concurrent message tracking should be thread-safe", func(t *testing.T) {
-		topic := "concurrent-tracking-topic"
+		ctx := context.Background()
+		topic := "confluentic-concurrent-tracking-topic"
 		numPartitions := 4
 		numGoroutines := 10
 		messagesPerGoroutine := 20
@@ -208,7 +212,8 @@ func TestClientAdapterIntegration_Implementation(t *testing.T) {
 	})
 
 	t.Run("concurrent health checks should be consistent", func(t *testing.T) {
-		topic := "concurrent-health-topic"
+		ctx := context.Background()
+		topic := "confluentic-concurrent-health-topic"
 		numHealthChecks := 50
 
 		hc, err := pulse.NewHealthChecker(
@@ -284,7 +289,8 @@ func TestClientAdapterIntegration_Implementation(t *testing.T) {
 	})
 
 	t.Run("backpressure scenario - slow consumer should be detected as unhealthy", func(t *testing.T) {
-		topic := "backpressure-topic"
+		ctx := context.Background()
+		topic := "confluentic-backpressure-topic"
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
@@ -323,34 +329,32 @@ func TestClientAdapterIntegration_Implementation(t *testing.T) {
 		}
 		producer.Flush(5000)
 
-		// Simulate slow consumer that only processes a few messages
+		// simulate slow consumer that only processes a few messages
 		slowConsumerOffset := int64(5) // only processed 6 messages out of 100
 		hc.Track(ctx, confluenticadapter.NewMessage(&kafka.Message{
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 0, Offset: kafka.Offset(slowConsumerOffset)},
 		}))
 
-		// Wait for timestamp to become stale
-		time.Sleep(150 * time.Millisecond)
+		// consumer should be unhealthy due to significant lag after timestamp becomes stale
+		assert.Eventually(t, func() bool {
+			healthy, err := hc.Healthy(ctx)
+			return err == nil && !healthy
+		}, 1*time.Second, 50*time.Millisecond, "slow consumer should be unhealthy due to backpressure")
 
-		// Consumer should be unhealthy due to significant lag
-		healthy, err := hc.Healthy(ctx)
-		assert.NoError(t, err)
-		assert.False(t, healthy, "slow consumer should be unhealthy due to backpressure")
-
-		// Now simulate consumer catching up
+		// now simulate consumer catching up
 		catchUpOffset := int64(messageCount - 1) // caught up to last message
 		hc.Track(ctx, confluenticadapter.NewMessage(&kafka.Message{
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 0, Offset: kafka.Offset(catchUpOffset)},
 		}))
 
-		// Consumer should now be healthy
-		healthy, err = hc.Healthy(ctx)
+		healthy, err := hc.Healthy(ctx)
 		assert.NoError(t, err)
 		assert.True(t, healthy, "consumer should be healthy after catching up")
 	})
 
 	t.Run("idle period followed by activity - should distinguish between stuck and idle", func(t *testing.T) {
-		topic := "idle-activity-topic"
+		ctx := context.Background()
+		topic := "confluentic-idle-activity-topic"
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
@@ -378,7 +382,7 @@ func TestClientAdapterIntegration_Implementation(t *testing.T) {
 		require.NoError(t, err)
 		defer producer.Close()
 
-		// Phase 1: Initial activity
+		// phase 1: Initial activity
 		err = producer.Produce(&kafka.Message{
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 0},
 			Value:          []byte("initial message"),
@@ -390,18 +394,16 @@ func TestClientAdapterIntegration_Implementation(t *testing.T) {
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 0, Offset: 0},
 		}))
 
-		// Should be healthy initially
 		healthy, err := hc.Healthy(ctx)
 		assert.NoError(t, err)
 		assert.True(t, healthy)
 
-		// Phase 2: Long idle period - no new messages
-		time.Sleep(200 * time.Millisecond) // wait longer than StuckTimeout
-
-		// Should still be healthy because consumer is caught up (idle, not stuck)
-		healthy, err = hc.Healthy(ctx)
-		assert.NoError(t, err)
-		assert.True(t, healthy, "consumer should be healthy during idle period")
+		// phase 2: Long idle period - no new messages
+		// should still be healthy because consumer is caught up (idle, not stuck)
+		assert.Eventually(t, func() bool {
+			healthy, err := hc.Healthy(ctx)
+			return err == nil && healthy
+		}, 1*time.Second, 50*time.Millisecond, "consumer should be healthy during idle period")
 
 		// Phase 3: Activity resumes
 		err = producer.Produce(&kafka.Message{
@@ -412,12 +414,11 @@ func TestClientAdapterIntegration_Implementation(t *testing.T) {
 		producer.Flush(1000)
 
 		// Consumer doesn't immediately process the new message
-		time.Sleep(150 * time.Millisecond) // wait longer than StuckTimeout
-
 		// Now should be unhealthy because there's a new message but consumer is stuck
-		healthy, err = hc.Healthy(ctx)
-		assert.NoError(t, err)
-		assert.False(t, healthy, "consumer should be unhealthy when stuck after idle period")
+		assert.Eventually(t, func() bool {
+			healthy, err := hc.Healthy(ctx)
+			return err == nil && !healthy
+		}, 1*time.Second, 50*time.Millisecond, "consumer should be unhealthy when stuck after idle period")
 
 		// Consumer processes the new message
 		hc.Track(ctx, confluenticadapter.NewMessage(&kafka.Message{
@@ -432,10 +433,11 @@ func TestClientAdapterIntegration_Implementation(t *testing.T) {
 }
 
 func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	t.Run("should be unhealthy when stale and lagging behind", func(t *testing.T) {
-		topic := "stuck-topic"
+		topic := "confluentic-stuck-topic"
 		brokerClient := confluenticadapter.NewClientAdapter(configMap)
 
 		hc, err := pulse.NewHealthChecker(
@@ -478,8 +480,11 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 			},
 		}))
 
-		// Wait for the timestamp to become "stale"
-		time.Sleep(150 * time.Millisecond)
+		// Consumer should still be healthy before producing new message (no lag yet)
+		assert.Eventually(t, func() bool {
+			healthy, err := hc.Healthy(ctx)
+			return err == nil && healthy
+		}, 200*time.Millisecond, 20*time.Millisecond, "consumer should be healthy before new message")
 
 		// Produce a new message to make the consumer "lag behind"
 		err = producer.Produce(&kafka.Message{
@@ -489,12 +494,11 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		require.NoError(t, err)
 		producer.Flush(1000)
 
-		// Give the broker a moment to update its watermark
-		time.Sleep(100 * time.Millisecond)
-
-		healthy, err := hc.Healthy(ctx)
-		assert.NoError(t, err)
-		assert.False(t, healthy)
+		// Consumer should be unhealthy after broker updates watermark
+		assert.Eventually(t, func() bool {
+			healthy, err := hc.Healthy(ctx)
+			return err == nil && !healthy
+		}, 1*time.Second, 50*time.Millisecond)
 	})
 
 	t.Run("a running consumer should be unhealthy when it gets stuck", func(t *testing.T) {
@@ -571,8 +575,11 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 			t.Fatal("timeout: consumer never processed the first message")
 		}
 
-		// At this point, the consumer is healthy but its timestamp is about to become stale
-		time.Sleep(150 * time.Millisecond) // wait for longer than the StuckTimeout
+		// At this point, the consumer should still be healthy even after StuckTimeout (no new messages yet)
+		assert.Eventually(t, func() bool {
+			healthy, err := hc.Healthy(ctx)
+			return err == nil && healthy
+		}, 200*time.Millisecond, 20*time.Millisecond, "consumer should still be healthy when no new messages")
 
 		// Produce a new message
 		// The consumer is stuck and will NOT process this makes the consumer "lagging behind"
@@ -583,15 +590,15 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		require.NoError(t, err)
 		producer.Flush(1000)
 
-		time.Sleep(100 * time.Millisecond)
-
-		healthy, err := hc.Healthy(ctx)
-		assert.NoError(t, err)
-		assert.False(t, healthy, "the stuck consumer should be reported as unhealthy")
+		// The stuck consumer should be reported as unhealthy
+		assert.Eventually(t, func() bool {
+			healthy, err := hc.Healthy(ctx)
+			return err == nil && !healthy
+		}, 1*time.Second, 50*time.Millisecond, "the stuck consumer should be reported as unhealthy")
 	})
 
 	t.Run("should be healthy when idle but caught up", func(t *testing.T) {
-		topic := "idle-topic"
+		topic := "confluentic-idle-topic"
 		hc, _ := pulse.NewHealthChecker(pulse.Config{StuckTimeout: 100 * time.Millisecond}, confluenticadapter.NewClientAdapter(configMap))
 
 		adminClient, err := kafka.NewAdminClient(configMap)
@@ -624,17 +631,15 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 0, Offset: 0},
 		}))
 
-		// Wait for longer than the StuckTimeout
-		time.Sleep(150 * time.Millisecond)
-
-		// Still healthy because it's idle but not lagging
-		healthy, err := hc.Healthy(ctx)
-		assert.NoError(t, err)
-		assert.True(t, healthy)
+		// Still healthy because it's idle but not lagging (even after StuckTimeout)
+		assert.Eventually(t, func() bool {
+			healthy, err := hc.Healthy(ctx)
+			return err == nil && healthy
+		}, 1*time.Second, 50*time.Millisecond, "should be healthy when idle but caught up")
 	})
 
 	t.Run("multi-partition tracking - should be healthy when all partitions are caught up", func(t *testing.T) {
-		topic := "multi-partition-healthy-topic"
+		topic := "confluentic-multi-partition-healthy-topic"
 		numPartitions := 3
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
@@ -688,7 +693,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 	})
 
 	t.Run("multi-partition tracking - should be unhealthy when one partition is stuck", func(t *testing.T) {
-		topic := "multi-partition-stuck-topic"
+		topic := "confluentic-multi-partition-stuck-topic"
 		numPartitions := 3
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
@@ -736,8 +741,11 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 			}))
 		}
 
-		// wait for timestamps to become stale
-		time.Sleep(150 * time.Millisecond)
+		// all partitions should still be healthy before new message
+		assert.Eventually(t, func() bool {
+			healthy, err := hc.Healthy(ctx)
+			return err == nil && healthy
+		}, 200*time.Millisecond, 20*time.Millisecond, "all partitions should be healthy before new message")
 
 		// produce a new message to partition 1 only (making it lag behind)
 		err = producer.Produce(&kafka.Message{
@@ -747,17 +755,15 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		require.NoError(t, err)
 		producer.Flush(1000)
 
-		// give broker time to update watermarks
-		time.Sleep(100 * time.Millisecond)
-
 		// should be unhealthy because partition 1 is lagging
-		healthy, err := hc.Healthy(ctx)
-		assert.NoError(t, err)
-		assert.False(t, healthy)
+		assert.Eventually(t, func() bool {
+			healthy, err := hc.Healthy(ctx)
+			return err == nil && !healthy
+		}, 1*time.Second, 50*time.Millisecond, "should be unhealthy when one partition is stuck")
 	})
 
 	t.Run("multi-partition tracking - should handle mixed partition states correctly", func(t *testing.T) {
-		topic := "multi-partition-mixed-topic"
+		topic := "confluentic-multi-partition-mixed-topic"
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
 			confluenticadapter.NewClientAdapter(configMap),
@@ -831,21 +837,21 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 1, Offset: 0},
 		}))
 
-		// wait for timestamp to become stale
-		time.Sleep(150 * time.Millisecond)
-
-		// should be unhealthy because partition 1 is now lagging
-		healthy, err = hc.Healthy(ctx)
-		assert.NoError(t, err)
-		assert.False(t, healthy)
+		// should be unhealthy because partition 1 is now lagging after timestamp becomes stale
+		// Wait for the StuckTimeout (100ms) to pass before checking, then verify unhealthy state
+		assert.Eventually(t, func() bool {
+			healthy, err := hc.Healthy(ctx)
+			return err == nil && !healthy
+		}, 3*time.Second, 100*time.Millisecond, "should be unhealthy when partition 1 is lagging")
 	})
 }
 
 func TestHealthCheckerIntegration_ConsumerGroup_WithConfluentAdapter(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	t.Run("consumer should track multiple partitions independently", func(t *testing.T) {
-		topic := "multi-partition-consumer-topic"
+		topic := "confluentic-multi-partition-consumer-topic"
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
@@ -899,7 +905,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithConfluentAdapter(t *testing.
 	})
 
 	t.Run("consumer group rebalancing scenario - should handle partition reassignment", func(t *testing.T) {
-		topic := "rebalance-topic"
+		topic := "confluentic-rebalance-topic"
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},

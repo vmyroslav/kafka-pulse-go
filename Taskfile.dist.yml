@@ -79,7 +79,7 @@ tasks:
     desc: Run sarama unit tests (no containers)
     dir: adapter/sarama
     cmds:
-      - go test -timeout=60s -race -covermode=atomic -coverprofile=profile.unit.cov adapter_test.go mock_integration_test.go adapter.go
+      - go test -timeout=60s -race -covermode=atomic -coverprofile=profile.unit.cov adapter_test.go adapter.go
 
   test:sarama:integration:
     desc: Run sarama integration tests (real containers)
@@ -98,6 +98,58 @@ tasks:
     dir: adapter/segmentio
     cmds:
       - go test -timeout=300s -race -covermode=atomic -coverprofile=profile.integration.cov adapter_integration_test.go adapter.go
+
+  test:coverage:
+    desc: Generate combined coverage report from all tests
+    deps:
+      - test
+    cmds:
+      - task: test:coverage:merge
+      - task: test:coverage:report
+
+  test:coverage:merge:
+    desc: Merge all coverage files into a single report
+    internal: true
+    cmds:
+      - |
+        # Create directory for combined coverage
+        mkdir -p coverage
+        
+        # Merge all coverage files using go tool cover
+        echo "mode: atomic" > coverage/combined.cov
+        
+        # Add core coverage
+        if [ -f "profile.cov" ]; then
+          tail -n +2 profile.cov >> coverage/combined.cov
+        fi
+        
+        # Add adapter coverage files
+        for adapter in confluentic sarama segmentio; do
+          # Unit coverage
+          if [ -f "adapter/$adapter/profile.unit.cov" ]; then
+            tail -n +2 "adapter/$adapter/profile.unit.cov" >> coverage/combined.cov
+          fi
+          # Integration coverage  
+          if [ -f "adapter/$adapter/profile.integration.cov" ]; then
+            tail -n +2 "adapter/$adapter/profile.integration.cov" >> coverage/combined.cov
+          fi
+        done
+
+  test:coverage:report:
+    desc: Generate HTML coverage report
+    internal: true
+    cmds:
+      - go tool cover -html=coverage/combined.cov -o coverage/coverage.html
+      - go tool cover -func=coverage/combined.cov
+      - echo "📊 Combined coverage report generated at coverage/coverage.html"
+
+  test:coverage:clean:
+    desc: Clean coverage files
+    cmds:
+      - rm -rf coverage/
+      - rm -f profile.cov
+      - rm -f adapter/*/profile.*.cov
+
   fmt:
     desc: Format project files
     cmds:

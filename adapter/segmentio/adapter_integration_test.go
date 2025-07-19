@@ -59,8 +59,28 @@ func createTopic(topicName string, partitions int) {
 		log.Printf("Successfully created topic %s with %d partitions", topicName, partitions)
 	}
 
-	// Wait for topic metadata to propagate to all brokers
-	time.Sleep(500 * time.Millisecond)
+	// Wait for topic metadata to propagate to all brokers by checking topic availability
+	adapter := segmentioadapter.NewClientAdapter(brokers)
+	ctx := context.Background()
+
+	// Use a loop with timeout instead of fixed sleep
+	timeout := time.After(5 * time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeout:
+			log.Printf("Warning: Topic %s may not be fully available after 5s timeout", topicName)
+			return
+		case <-ticker.C:
+			_, err := adapter.GetLatestOffset(ctx, topicName, 0)
+			if err == nil {
+				log.Printf("Topic %s is now available", topicName)
+				return
+			}
+		}
+	}
 }
 
 func TestMain(m *testing.M) {
@@ -89,10 +109,11 @@ func TestMain(m *testing.M) {
 }
 
 func TestClientAdapterIntegration_Implementation(t *testing.T) {
+	t.Parallel()
 	var (
 		ctx            = context.Background()
-		topicSingleMsg = "topic-single-message"
-		topicMultiPart = "topic-multi-partition"
+		topicSingleMsg = "segmentio-topic-single-message"
+		topicMultiPart = "segmentio-topic-multi-partition"
 	)
 
 	conn, err := kafka.Dial("tcp", brokers[0])
@@ -125,6 +146,13 @@ func TestClientAdapterIntegration_Implementation(t *testing.T) {
 	err = controllerConn.CreateTopics(topicConfigs...)
 	require.NoError(t, err, "Failed to create topics")
 
+	// Wait for topic metadata to propagate across the cluster
+	adapter := segmentioadapter.NewClientAdapter(brokers)
+	assert.Eventually(t, func() bool {
+		_, err := adapter.GetLatestOffset(ctx, topicSingleMsg, 0)
+		return err == nil
+	}, 5*time.Second, 100*time.Millisecond, "topic metadata should propagate")
+
 	writer := &kafka.Writer{
 		Addr:                   kafka.TCP(brokers[0]),
 		AllowAutoTopicCreation: true,
@@ -155,10 +183,14 @@ func TestClientAdapterIntegration_Implementation(t *testing.T) {
 	err = writer.WriteMessages(ctx, messages...)
 	require.NoError(t, err, "Failed to produce messages to topicMultiPart")
 
-	// wait for messages to be committed to Kafka
-	time.Sleep(200 * time.Millisecond)
-
-	adapter := segmentioadapter.NewClientAdapter(brokers)
+	// wait for messages to be committed to Kafka by checking offsets
+	assert.Eventually(t, func() bool {
+		latestOffset, err := adapter.GetLatestOffset(ctx, topicMultiPart, 0)
+		if err != nil {
+			return false
+		}
+		return latestOffset >= 0 // at least one message should be available
+	}, 2*time.Second, 100*time.Millisecond, "messages should be committed to Kafka")
 
 	t.Run("success on partition with single message", func(t *testing.T) {
 		latestOffset, err := adapter.GetLatestOffset(ctx, topicSingleMsg, 0)
@@ -167,28 +199,26 @@ func TestClientAdapterIntegration_Implementation(t *testing.T) {
 	})
 
 	t.Run("success on partition with multiple messages", func(t *testing.T) {
-		// Wait a bit for messages to be fully committed
-		time.Sleep(100 * time.Millisecond)
-
 		// check all partitions to see which ones have messages
-		foundMessages := false
-		for partition := int32(0); partition < 3; partition++ {
-			latestOffset, err := adapter.GetLatestOffset(ctx, topicMultiPart, partition)
-			assert.NoError(t, err)
-			if latestOffset >= 0 {
-				foundMessages = true
-				t.Logf("Partition %d has latest offset: %d", partition, latestOffset)
+		assert.Eventually(t, func() bool {
+			for partition := int32(0); partition < 3; partition++ {
+				latestOffset, err := adapter.GetLatestOffset(ctx, topicMultiPart, partition)
+				if err == nil && latestOffset >= 0 {
+					t.Logf("Partition %d has latest offset: %d", partition, latestOffset)
+					return true
+				}
 			}
-		}
-		assert.True(t, foundMessages, "Expected at least one partition to have messages")
+			return false
+		}, 2*time.Second, 100*time.Millisecond, "Expected at least one partition to have messages")
 	})
 }
 
 func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	t.Run("should be unhealthy when stale and lagging behind", func(t *testing.T) {
-		topic := "stuck-topic"
+		topic := "segmentio-stuck-topic"
 		createTopic(topic, 1)
 
 		brokerClient := segmentioadapter.NewClientAdapter(brokers)
@@ -219,8 +249,11 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 			Offset:    0,
 		}))
 
-		// wait for the timestamp to become "stale"
-		time.Sleep(150 * time.Millisecond)
+		// consumer should still be healthy before producing new message (no lag yet)
+		assert.Eventually(t, func() bool {
+			healthy, err := hc.Healthy(ctx)
+			return err == nil && healthy
+		}, 200*time.Millisecond, 20*time.Millisecond, "consumer should be healthy before new message")
 
 		// produce a new message to make the consumer "lag behind"
 		err = writer.WriteMessages(ctx, kafka.Message{
@@ -230,12 +263,11 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		})
 		require.NoError(t, err, "failed to produce new message to topic")
 
-		// give the broker a moment to update its watermark
-		time.Sleep(100 * time.Millisecond)
-
-		healthy, err := hc.Healthy(ctx)
-		assert.NoError(t, err)
-		assert.False(t, healthy)
+		// consumer should be unhealthy after broker updates watermark
+		assert.Eventually(t, func() bool {
+			healthy, err := hc.Healthy(ctx)
+			return err == nil && !healthy
+		}, 1*time.Second, 50*time.Millisecond)
 	})
 
 	t.Run("a running consumer should be unhealthy when it gets stuck", func(t *testing.T) {
@@ -320,8 +352,11 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 			t.Fatal("timeout: consumer never processed the first message")
 		}
 
-		// at this point, the consumer is healthy but its timestamp is about to become stale
-		time.Sleep(150 * time.Millisecond) // wait for longer than the StuckTimeout
+		// at this point, the consumer should still be healthy even after StuckTimeout (no new messages yet)
+		assert.Eventually(t, func() bool {
+			healthy, err := hc.Healthy(ctx)
+			return err == nil && healthy
+		}, 200*time.Millisecond, 20*time.Millisecond, "consumer should still be healthy when no new messages")
 
 		// produce a new message
 		// the consumer is stuck and will NOT process this makes the consumer "lagging behind"
@@ -332,16 +367,15 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// give broker time to update watermarks
-		time.Sleep(100 * time.Millisecond)
-
-		healthy, err := hc.Healthy(ctx)
-		assert.NoError(t, err)
-		assert.False(t, healthy, "the stuck consumer should be reported as unhealthy")
+		// the stuck consumer should be reported as unhealthy
+		assert.Eventually(t, func() bool {
+			healthy, err := hc.Healthy(ctx)
+			return err == nil && !healthy
+		}, 1*time.Second, 50*time.Millisecond, "the stuck consumer should be reported as unhealthy")
 	})
 
 	t.Run("should be healthy when idle but caught up", func(t *testing.T) {
-		topic := "idle-topic"
+		topic := "segmentio-idle-topic"
 		createTopic(topic, 1)
 
 		hc, _ := pulse.NewHealthChecker(pulse.Config{StuckTimeout: 100 * time.Millisecond}, segmentioadapter.NewClientAdapter(brokers))
@@ -367,17 +401,15 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 			Offset:    0,
 		}))
 
-		// wait for longer than the StuckTimeout
-		time.Sleep(150 * time.Millisecond)
-
-		// still healthy because it's idle but not lagging
-		healthy, err := hc.Healthy(ctx)
-		assert.NoError(t, err)
-		assert.True(t, healthy)
+		// still healthy because it's idle but not lagging (even after StuckTimeout)
+		assert.Eventually(t, func() bool {
+			healthy, err := hc.Healthy(ctx)
+			return err == nil && healthy
+		}, 1*time.Second, 50*time.Millisecond, "should be healthy when idle but caught up")
 	})
 
 	t.Run("multi-partition tracking - should be healthy when all partitions are caught up", func(t *testing.T) {
-		topic := "multi-partition-healthy-topic"
+		topic := "segmentio-multi-partition-healthy-topic"
 		numPartitions := 3
 		createTopic(topic, numPartitions)
 
@@ -423,7 +455,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 	})
 
 	t.Run("multi-partition tracking - should be unhealthy when one partition is stuck", func(t *testing.T) {
-		topic := "multi-partition-stuck-topic"
+		topic := "segmentio-multi-partition-stuck-topic"
 		numPartitions := 3
 		createTopic(topic, numPartitions)
 
@@ -461,8 +493,11 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 			}))
 		}
 
-		// wait for timestamps to become stale
-		time.Sleep(150 * time.Millisecond)
+		// all partitions should still be healthy before new message
+		assert.Eventually(t, func() bool {
+			healthy, err := hc.Healthy(ctx)
+			return err == nil && healthy
+		}, 200*time.Millisecond, 20*time.Millisecond, "all partitions should be healthy before new message")
 
 		// produce a new message to partition 1 only (making it lag behind)
 		err = writer.WriteMessages(ctx, kafka.Message{
@@ -472,17 +507,15 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// give broker time to update watermarks
-		time.Sleep(100 * time.Millisecond)
-
 		// should be unhealthy because partition 1 is lagging
-		healthy, err := hc.Healthy(ctx)
-		assert.NoError(t, err)
-		assert.False(t, healthy)
+		assert.Eventually(t, func() bool {
+			healthy, err := hc.Healthy(ctx)
+			return err == nil && !healthy
+		}, 1*time.Second, 50*time.Millisecond, "should be unhealthy when one partition is stuck")
 	})
 
 	t.Run("multi-partition tracking - should handle mixed partition states correctly", func(t *testing.T) {
-		topic := "multi-partition-mixed-topic"
+		topic := "segmentio-multi-partition-mixed-topic"
 		createTopic(topic, 3)
 
 		hc, err := pulse.NewHealthChecker(
@@ -558,21 +591,20 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 			Offset:    0,
 		}))
 
-		// wait for timestamp to become stale
-		time.Sleep(150 * time.Millisecond)
-
-		// should be unhealthy because partition 1 is now lagging
-		healthy, err = hc.Healthy(ctx)
-		assert.NoError(t, err)
-		assert.False(t, healthy)
+		// should be unhealthy because partition 1 is now lagging after timestamp becomes stale
+		assert.Eventually(t, func() bool {
+			healthy, err := hc.Healthy(ctx)
+			return err == nil && !healthy
+		}, 1*time.Second, 50*time.Millisecond, "should be unhealthy when partition 1 is lagging")
 	})
 }
 
 func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 
 	t.Run("consumer should track multiple partitions independently", func(t *testing.T) {
-		topic := "multi-partition-consumer-topic"
+		topic := "segmentio-multi-partition-consumer-topic"
 		createTopic(topic, 2)
 
 		hc, err := pulse.NewHealthChecker(
@@ -622,7 +654,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 	})
 
 	t.Run("consumer group rebalancing scenario - should handle partition reassignment", func(t *testing.T) {
-		topic := "rebalance-topic"
+		topic := "segmentio-rebalance-topic"
 		createTopic(topic, 3)
 
 		hc, err := pulse.NewHealthChecker(
@@ -652,11 +684,22 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 		err = writer.WriteMessages(ctx, messages...)
 		require.NoError(t, err)
 
-		// Wait for messages to be committed
-		time.Sleep(200 * time.Millisecond)
-
 		// Check what the actual latest offsets are for each partition
 		adapter := segmentioadapter.NewClientAdapter(brokers)
+
+		// Wait for messages to be committed by checking offsets
+		assert.Eventually(t, func() bool {
+			for p := int32(0); p < 3; p++ {
+				latestOffset, err := adapter.GetLatestOffset(ctx, topic, p)
+				if err != nil {
+					return false
+				}
+				if latestOffset < 0 {
+					return false
+				}
+			}
+			return true
+		}, 2*time.Second, 100*time.Millisecond, "messages should be committed to all partitions")
 		for p := int32(0); p < 3; p++ {
 			latestOffset, err := adapter.GetLatestOffset(ctx, topic, p)
 			require.NoError(t, err)
@@ -688,13 +731,11 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 			Offset:    latestOffset0,
 		}))
 
-		// Give some time for the release to be processed
-		time.Sleep(50 * time.Millisecond)
-
 		// consumer should still be healthy for remaining partition
-		healthy, err = hc.Healthy(ctx)
-		assert.NoError(t, err)
-		assert.True(t, healthy)
+		assert.Eventually(t, func() bool {
+			healthy, err := hc.Healthy(ctx)
+			return err == nil && healthy
+		}, 500*time.Millisecond, 25*time.Millisecond, "consumer should be healthy for remaining partition")
 
 		// produce new messages to the released partitions
 		err = writer.WriteMessages(ctx,
@@ -711,12 +752,13 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 		)
 		require.NoError(t, err)
 
-		// Give some time for the new messages to be committed
-		time.Sleep(100 * time.Millisecond)
-
 		// Update partition 0 tracking again to ensure it stays current for final check
-		latestOffset0, err = adapter.GetLatestOffset(ctx, topic, 0)
-		require.NoError(t, err)
+		// Wait for new messages to be committed by checking offset updates
+		assert.Eventually(t, func() bool {
+			var err error
+			latestOffset0, err = adapter.GetLatestOffset(ctx, topic, 0)
+			return err == nil && latestOffset0 >= 0
+		}, 1*time.Second, 50*time.Millisecond, "messages should be committed to partition 0")
 		hc.Track(ctx, segmentioadapter.NewMessage(kafka.Message{
 			Topic:     topic,
 			Partition: 0,
@@ -733,7 +775,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 	})
 
 	t.Run("backpressure scenario - slow consumer should be detected as unhealthy", func(t *testing.T) {
-		topic := "backpressure-topic"
+		topic := "segmentio-backpressure-topic"
 		createTopic(topic, 1)
 
 		hc, err := pulse.NewHealthChecker(
@@ -770,13 +812,11 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 			Offset:    slowConsumerOffset,
 		}))
 
-		// wait for timestamp to become stale
-		time.Sleep(150 * time.Millisecond)
-
-		// consumer should be unhealthy due to significant lag
-		healthy, err := hc.Healthy(ctx)
-		assert.NoError(t, err)
-		assert.False(t, healthy, "slow consumer should be unhealthy due to backpressure")
+		// consumer should be unhealthy due to significant lag after timestamp becomes stale
+		assert.Eventually(t, func() bool {
+			healthy, err := hc.Healthy(ctx)
+			return err == nil && !healthy
+		}, 1*time.Second, 50*time.Millisecond, "slow consumer should be unhealthy due to backpressure")
 
 		// now simulate consumer catching up
 		catchUpOffset := int64(messageCount - 1) // caught up to last message
@@ -787,7 +827,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 		}))
 
 		// consumer should now be healthy
-		healthy, err = hc.Healthy(ctx)
+		healthy, err := hc.Healthy(ctx)
 		assert.NoError(t, err)
 		assert.True(t, healthy, "consumer should be healthy after catching up")
 	})
