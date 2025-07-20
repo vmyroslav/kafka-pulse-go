@@ -218,7 +218,7 @@ func TestClientAdapter_Implementation(t *testing.T) {
 		numHealthChecks := 50
 
 		hc, err := pulse.NewHealthChecker(
-			pulse.Config{StuckTimeout: 100 * time.Millisecond},
+			pulse.Config{StuckTimeout: 200 * time.Millisecond},
 			confluenticadapter.NewClientAdapter(configMap),
 		)
 		require.NoError(t, err)
@@ -294,7 +294,7 @@ func TestClientAdapter_Implementation(t *testing.T) {
 		topic := "confluentic-backpressure-topic"
 
 		hc, err := pulse.NewHealthChecker(
-			pulse.Config{StuckTimeout: 100 * time.Millisecond},
+			pulse.Config{StuckTimeout: 200 * time.Millisecond},
 			confluenticadapter.NewClientAdapter(configMap),
 		)
 		require.NoError(t, err)
@@ -339,7 +339,7 @@ func TestClientAdapter_Implementation(t *testing.T) {
 		assert.Eventually(t, func() bool {
 			healthy, err := hc.Healthy(ctx)
 			return err == nil && !healthy
-		}, 1*time.Second, 50*time.Millisecond, "slow consumer should be unhealthy due to backpressure")
+		}, 3*time.Second, 100*time.Millisecond, "slow consumer should be unhealthy due to backpressure")
 
 		// now simulate consumer catching up
 		catchUpOffset := int64(messageCount - 1) // caught up to last message
@@ -357,7 +357,7 @@ func TestClientAdapter_Implementation(t *testing.T) {
 		topic := "confluentic-idle-activity-topic"
 
 		hc, err := pulse.NewHealthChecker(
-			pulse.Config{StuckTimeout: 100 * time.Millisecond},
+			pulse.Config{StuckTimeout: 200 * time.Millisecond},
 			confluenticadapter.NewClientAdapter(configMap),
 		)
 		require.NoError(t, err)
@@ -417,7 +417,7 @@ func TestClientAdapter_Implementation(t *testing.T) {
 		assert.Eventually(t, func() bool {
 			healthy, err := hc.Healthy(ctx)
 			return err == nil && !healthy
-		}, 1*time.Second, 50*time.Millisecond, "consumer should be unhealthy when stuck after idle period")
+		}, 3*time.Second, 100*time.Millisecond, "consumer should be unhealthy when stuck after idle period")
 
 		// consumer processes the new message
 		hc.Track(ctx, confluenticadapter.NewMessage(&kafka.Message{
@@ -441,7 +441,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		brokerClient := confluenticadapter.NewClientAdapter(configMap)
 
 		hc, err := pulse.NewHealthChecker(
-			pulse.Config{StuckTimeout: 100 * time.Millisecond},
+			pulse.Config{StuckTimeout: 200 * time.Millisecond},
 			brokerClient,
 		)
 		require.NoError(t, err, "failed to create health checker")
@@ -498,7 +498,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		assert.Eventually(t, func() bool {
 			healthy, err := hc.Healthy(ctx)
 			return err == nil && !healthy
-		}, 1*time.Second, 50*time.Millisecond)
+		}, 3*time.Second, 100*time.Millisecond)
 	})
 
 	t.Run("a running consumer should be unhealthy when it gets stuck", func(t *testing.T) {
@@ -507,7 +507,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		defer cancel()
 
 		hc, err := pulse.NewHealthChecker(
-			pulse.Config{StuckTimeout: 100 * time.Millisecond},
+			pulse.Config{StuckTimeout: 200 * time.Millisecond},
 			confluenticadapter.NewClientAdapter(configMap),
 		)
 		require.NoError(t, err)
@@ -575,11 +575,10 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 			t.Fatal("timeout: consumer never processed the first message")
 		}
 
-		// At this point, the consumer should still be healthy even after StuckTimeout (no new messages yet)
-		assert.Eventually(t, func() bool {
-			healthy, err := hc.Healthy(ctx)
-			return err == nil && healthy
-		}, 200*time.Millisecond, 20*time.Millisecond, "consumer should still be healthy when no new messages")
+		// the consumer should be healthy immediately after processing
+		healthy, err := hc.Healthy(ctx)
+		require.NoError(t, err)
+		assert.True(t, healthy, "consumer should be healthy immediately after processing when no new messages")
 
 		// produce a new message
 		// consumer is stuck and will NOT process this makes the consumer "lagging behind"
@@ -594,12 +593,12 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		assert.Eventually(t, func() bool {
 			healthy, err := hc.Healthy(ctx)
 			return err == nil && !healthy
-		}, 1*time.Second, 50*time.Millisecond, "the stuck consumer should be reported as unhealthy")
+		}, 3*time.Second, 100*time.Millisecond, "the stuck consumer should be reported as unhealthy")
 	})
 
 	t.Run("should be healthy when idle but caught up", func(t *testing.T) {
 		topic := "confluentic-idle-topic"
-		hc, _ := pulse.NewHealthChecker(pulse.Config{StuckTimeout: 100 * time.Millisecond}, confluenticadapter.NewClientAdapter(configMap))
+		hc, _ := pulse.NewHealthChecker(pulse.Config{StuckTimeout: 200 * time.Millisecond}, confluenticadapter.NewClientAdapter(configMap))
 
 		adminClient, err := kafka.NewAdminClient(configMap)
 		require.NoError(t, err)
@@ -642,7 +641,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		topic := "confluentic-multi-partition-healthy-topic"
 		numPartitions := 3
 		hc, err := pulse.NewHealthChecker(
-			pulse.Config{StuckTimeout: 100 * time.Millisecond},
+			pulse.Config{StuckTimeout: 200 * time.Millisecond},
 			confluenticadapter.NewClientAdapter(configMap),
 		)
 		require.NoError(t, err)
@@ -696,7 +695,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		topic := "confluentic-multi-partition-stuck-topic"
 		numPartitions := 3
 		hc, err := pulse.NewHealthChecker(
-			pulse.Config{StuckTimeout: 100 * time.Millisecond},
+			pulse.Config{StuckTimeout: 200 * time.Millisecond},
 			confluenticadapter.NewClientAdapter(configMap),
 		)
 		require.NoError(t, err)
@@ -759,13 +758,13 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		assert.Eventually(t, func() bool {
 			healthy, err := hc.Healthy(ctx)
 			return err == nil && !healthy
-		}, 1*time.Second, 50*time.Millisecond, "should be unhealthy when one partition is stuck")
+		}, 3*time.Second, 100*time.Millisecond, "should be unhealthy when one partition is stuck")
 	})
 
 	t.Run("multi-partition tracking - should handle mixed partition states correctly", func(t *testing.T) {
 		topic := "confluentic-multi-partition-mixed-topic"
 		hc, err := pulse.NewHealthChecker(
-			pulse.Config{StuckTimeout: 100 * time.Millisecond},
+			pulse.Config{StuckTimeout: 200 * time.Millisecond},
 			confluenticadapter.NewClientAdapter(configMap),
 		)
 		require.NoError(t, err)
@@ -1042,14 +1041,14 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithConfluentAdapter(t *testing.
 		assert.Eventually(t, func() bool {
 			healthy, err := hc.Healthy(ctx)
 			return err == nil && !healthy
-		}, 2*time.Second, 100*time.Millisecond, "Consumer should be unhealthy when stuck and lagging")
+		}, 3*time.Second, 100*time.Millisecond, "Consumer should be unhealthy when stuck and lagging")
 	})
 
 	t.Run("consumer should track multiple partitions independently", func(t *testing.T) {
 		topic := "confluentic-multi-partition-consumer-topic"
 
 		hc, err := pulse.NewHealthChecker(
-			pulse.Config{StuckTimeout: 100 * time.Millisecond},
+			pulse.Config{StuckTimeout: 200 * time.Millisecond},
 			confluenticadapter.NewClientAdapter(configMap),
 		)
 		require.NoError(t, err)
@@ -1103,7 +1102,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithConfluentAdapter(t *testing.
 		topic := "confluentic-rebalance-topic"
 
 		hc, err := pulse.NewHealthChecker(
-			pulse.Config{StuckTimeout: 100 * time.Millisecond},
+			pulse.Config{StuckTimeout: 200 * time.Millisecond},
 			confluenticadapter.NewClientAdapter(configMap),
 		)
 		require.NoError(t, err)

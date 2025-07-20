@@ -13,6 +13,24 @@ import (
 	"github.com/vmyroslav/kafka-pulse-go/pulse"
 )
 
+// setupMockCluster creates a mock cluster for testing
+func setupMockCluster(t *testing.T) (*kafka.MockCluster, *kafka.ConfigMap) {
+	t.Helper()
+
+	mockCluster, err := kafka.NewMockCluster(1)
+	require.NoError(t, err, "failed to create mock cluster")
+
+	err = mockCluster.SetBrokerUp(1)
+	require.NoError(t, err, "failed to set broker up in mock cluster")
+
+	bootstrapServers := mockCluster.BootstrapServers()
+	require.NotEmpty(t, bootstrapServers, "mock cluster did not provide bootstrap servers")
+
+	configMap := &kafka.ConfigMap{"bootstrap.servers": bootstrapServers}
+
+	return mockCluster, configMap
+}
+
 func TestMessage_Wrapper(t *testing.T) {
 	t.Parallel()
 
@@ -65,6 +83,7 @@ func TestMessage_Wrapper(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
 			msg := NewMessage(tc.kafkaMsg)
 
 			assert.Equal(t, tc.expectedTopic, msg.Topic())
@@ -156,24 +175,14 @@ func TestHealthChecker_WithClientAdapter(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-
-	mockCluster, err := kafka.NewMockCluster(1)
-	require.NoError(t, err, "failed to create mock cluster")
-
-	err = mockCluster.SetBrokerUp(1)
-	require.NoError(t, err, "failed to set broker up in mock cluster")
-
-	bootstrapServers := mockCluster.BootstrapServers()
-	require.NotEmpty(t, bootstrapServers, "mock cluster did not provide bootstrap servers")
-
-	configMap := &kafka.ConfigMap{"bootstrap.servers": bootstrapServers}
+	mockCluster, configMap := setupMockCluster(t)
 
 	t.Run("should be unhealthy when stale and lagging behind", func(t *testing.T) {
 		t.Parallel()
 
 		topic := "stuck-topic"
 
-		err = mockCluster.CreateTopic(topic, 1, 1)
+		err := mockCluster.CreateTopic(topic, 1, 1)
 		require.NoError(t, err)
 
 		brokerClient := NewClientAdapter(configMap)
@@ -218,11 +227,11 @@ func TestHealthChecker_WithClientAdapter(t *testing.T) {
 	})
 
 	t.Run("a running consumer should be unhealthy when it gets stuck", func(t *testing.T) {
-		t.Parallel()
-
 		topic := fmt.Sprintf("live-consumer-topic-%d", 1)
 
-		err = mockCluster.CreateTopic(topic, 1, 1)
+		bootstrapServers := mockCluster.BootstrapServers()
+
+		err := mockCluster.CreateTopic(topic, 1, 1)
 		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -301,9 +310,11 @@ func TestHealthChecker_WithClientAdapter(t *testing.T) {
 	})
 
 	t.Run("should be healthy when idle but caught up", func(t *testing.T) {
-		t.Parallel()
-
 		topic := "idle-topic"
+
+		err := mockCluster.CreateTopic(topic, 1, 1)
+		require.NoError(t, err)
+
 		hc, _ := pulse.NewHealthChecker(pulse.Config{StuckTimeout: 100 * time.Millisecond}, NewClientAdapter(configMap))
 
 		// produce and track a message, consumer is now caught up
@@ -327,10 +338,12 @@ func TestHealthChecker_WithClientAdapter(t *testing.T) {
 	})
 
 	t.Run("multi-partition tracking - should be healthy when all partitions are caught up", func(t *testing.T) {
-		t.Parallel()
-
 		topic := "multi-partition-healthy-topic"
 		numPartitions := 3
+
+		err := mockCluster.CreateTopic(topic, numPartitions, 1)
+		require.NoError(t, err)
+
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
 			NewClientAdapter(configMap),
