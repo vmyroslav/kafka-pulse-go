@@ -40,6 +40,7 @@ type BrokerClient interface {
 
 type HealthChecker struct {
 	client             BrokerClient
+	clock              Clock
 	tracker            *tracker
 	logger             *slog.Logger
 	stuckTimeout       time.Duration
@@ -66,12 +67,13 @@ func NewHealthChecker(cfg Config, client BrokerClient) (*HealthChecker, error) {
 		stuckTimeout:       cfg.StuckTimeout,
 		logger:             logger,
 		ignoreBrokerErrors: cfg.IgnoreBrokerErrors,
+		clock:              &realClock{},
 	}, nil
 }
 
 func (h *HealthChecker) Healthy(ctx context.Context) (bool, error) {
 	currentState := h.tracker.currentOffsets()
-	now := time.Now()
+	now := h.clock.Now()
 
 	// check if any partition is stuck beyond timeout
 	for topic := range currentState {
@@ -123,7 +125,7 @@ func (h *HealthChecker) Healthy(ctx context.Context) (bool, error) {
 }
 
 func (h *HealthChecker) Track(_ context.Context, msg TrackableMessage) {
-	h.tracker.track(msg)
+	h.tracker.track(msg, h.clock)
 }
 
 func (h *HealthChecker) Release(_ context.Context, topic string, partition int32) {

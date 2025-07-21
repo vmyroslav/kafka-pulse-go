@@ -76,38 +76,15 @@ func TestNewHealthChecker(t *testing.T) {
 	}
 }
 
-func TestHealthChecker_Track(t *testing.T) {
-	t.Parallel()
-
-	config := Config{
-		Logger:       slog.Default(),
-		StuckTimeout: time.Minute,
-	}
-	client := &mockBrokerClient{}
-
+func newTestHealthChecker(config Config, client BrokerClient, clock Clock) *HealthChecker {
 	hc, err := NewHealthChecker(config, client)
 	if err != nil {
-		t.Fatalf("NewHealthChecker() error = %v", err)
+		panic(err)
 	}
 
-	msg := &mockMessage{
-		topic:     "test-topic",
-		partition: 0,
-		offset:    100,
-	}
+	hc.clock = clock
 
-	ctx := context.Background()
-	hc.Track(ctx, msg)
-
-	// verify message was tracked
-	offsets := hc.tracker.currentOffsets()
-	if len(offsets) != 1 {
-		t.Errorf("Expected 1 topic, got %d", len(offsets))
-	}
-
-	if offsets["test-topic"][0].Offset != 100 {
-		t.Errorf("Expected offset 100, got %d", offsets["test-topic"][0].Offset)
-	}
+	return hc
 }
 
 func TestHealthChecker_Release(t *testing.T) {
@@ -223,10 +200,8 @@ func TestHealthChecker_Healthy_StuckConsumer(t *testing.T) {
 		},
 	}
 
-	hc, err := NewHealthChecker(config, client)
-	if err != nil {
-		t.Fatalf("NewHealthChecker() error = %v", err)
-	}
+	clock := &mockClock{currentTime: time.Now()}
+	hc := newTestHealthChecker(config, client, clock)
 
 	// add old message to tracker
 	oldMessage := &mockMessage{
@@ -235,26 +210,16 @@ func TestHealthChecker_Healthy_StuckConsumer(t *testing.T) {
 		offset:    100,
 	}
 
-	hc.tracker.track(oldMessage)
+	hc.Track(context.Background(), oldMessage)
 
-	// set old timestamp
-	hc.tracker.mu.Lock()
-	hc.tracker.topicPartitionOffsets["test-topic"][0] = OffsetTimestamp{
-		Offset:    100,
-		Timestamp: time.Now().Add(-time.Minute), // Old timestamp
-	}
-	hc.tracker.mu.Unlock()
+	// advance time to make the message stale
+	clock.Add(config.StuckTimeout + time.Millisecond)
 
 	ctx := context.Background()
 
 	healthy, err := hc.Healthy(ctx)
-	if err != nil {
-		t.Errorf("Healthy() unexpected error = %v", err)
-	}
-
-	if healthy {
-		t.Error("Healthy() should return false for stuck consumer")
-	}
+	assert.NoError(t, err)
+	assert.False(t, healthy, "Healthy() should return false for stuck consumer")
 }
 
 func TestHealthChecker_Healthy_IdleConsumer(t *testing.T) {
@@ -274,10 +239,8 @@ func TestHealthChecker_Healthy_IdleConsumer(t *testing.T) {
 		},
 	}
 
-	hc, err := NewHealthChecker(config, client)
-	if err != nil {
-		t.Fatalf("NewHealthChecker() error = %v", err)
-	}
+	clock := &mockClock{currentTime: time.Now()}
+	hc := newTestHealthChecker(config, client, clock)
 
 	// add message to tracker with old timestamp
 	oldMessage := &mockMessage{
@@ -286,26 +249,16 @@ func TestHealthChecker_Healthy_IdleConsumer(t *testing.T) {
 		offset:    100,
 	}
 
-	hc.tracker.track(oldMessage)
+	hc.Track(context.Background(), oldMessage)
 
-	// set old timestamp
-	hc.tracker.mu.Lock()
-	hc.tracker.topicPartitionOffsets["test-topic"][0] = OffsetTimestamp{
-		Offset:    100,
-		Timestamp: time.Now().Add(-time.Minute), // Old timestamp
-	}
-	hc.tracker.mu.Unlock()
+	// advance time to make the message stale
+	clock.Add(config.StuckTimeout + time.Millisecond)
 
 	ctx := context.Background()
 
 	healthy, err := hc.Healthy(ctx)
-	if err != nil {
-		t.Errorf("Healthy() unexpected error = %v", err)
-	}
-
-	if !healthy {
-		t.Error("Healthy() should return true for idle but caught up consumer")
-	}
+	assert.NoError(t, err)
+	assert.True(t, healthy, "Healthy() should return true for idle but caught up consumer")
 }
 
 func TestHealthChecker_Healthy_BrokerError_FailByDefault(t *testing.T) {
@@ -322,10 +275,8 @@ func TestHealthChecker_Healthy_BrokerError_FailByDefault(t *testing.T) {
 		err: errors.New("broker connection failed"),
 	}
 
-	hc, err := NewHealthChecker(config, client)
-	if err != nil {
-		t.Fatalf("NewHealthChecker() error = %v", err)
-	}
+	clock := &mockClock{currentTime: time.Now()}
+	hc := newTestHealthChecker(config, client, clock)
 
 	// old message to trigger broker call
 	oldMessage := &mockMessage{
@@ -334,27 +285,16 @@ func TestHealthChecker_Healthy_BrokerError_FailByDefault(t *testing.T) {
 		offset:    100,
 	}
 
-	hc.tracker.track(oldMessage)
+	hc.Track(context.Background(), oldMessage)
 
-	// set old timestamp
-	hc.tracker.mu.Lock()
-	hc.tracker.topicPartitionOffsets["test-topic"][0] = OffsetTimestamp{
-		Offset:    100,
-		Timestamp: time.Now().Add(-time.Minute), // Old timestamp
-	}
-	hc.tracker.mu.Unlock()
+	// advance time to make the message stale
+	clock.Add(config.StuckTimeout + time.Millisecond)
 
 	ctx := context.Background()
 
 	healthy, err := hc.Healthy(ctx)
-	if err == nil {
-		t.Error("Healthy() should return error on broker failure by default")
-	}
-
-	// should return false and error on broker error by default
-	if healthy {
-		t.Error("Healthy() should return false on broker errors by default")
-	}
+	assert.Error(t, err, "Healthy() should return error on broker failure by default")
+	assert.False(t, healthy, "Healthy() should return false on broker errors by default")
 }
 
 func TestHealthChecker_Healthy_BrokerError_IgnoreWhenConfigured(t *testing.T) {
@@ -371,10 +311,8 @@ func TestHealthChecker_Healthy_BrokerError_IgnoreWhenConfigured(t *testing.T) {
 		err: errors.New("broker connection failed"),
 	}
 
-	hc, err := NewHealthChecker(config, client)
-	if err != nil {
-		t.Fatalf("NewHealthChecker() error = %v", err)
-	}
+	clock := &mockClock{currentTime: time.Now()}
+	hc := newTestHealthChecker(config, client, clock)
 
 	// old message to trigger broker call
 	oldMessage := &mockMessage{
@@ -383,27 +321,16 @@ func TestHealthChecker_Healthy_BrokerError_IgnoreWhenConfigured(t *testing.T) {
 		offset:    100,
 	}
 
-	hc.tracker.track(oldMessage)
+	hc.Track(context.Background(), oldMessage)
 
-	// set old timestamp
-	hc.tracker.mu.Lock()
-	hc.tracker.topicPartitionOffsets["test-topic"][0] = OffsetTimestamp{
-		Offset:    100,
-		Timestamp: time.Now().Add(-time.Minute), // Old timestamp
-	}
-	hc.tracker.mu.Unlock()
+	// advance time to make the message stale
+	clock.Add(config.StuckTimeout + time.Millisecond)
 
 	ctx := context.Background()
 
 	healthy, err := hc.Healthy(ctx)
-	if err != nil {
-		t.Errorf("Healthy() unexpected error = %v", err)
-	}
-
-	// should still return healthy despite broker error (transient error handling)
-	if !healthy {
-		t.Error("Healthy() should return true when configured to ignore broker errors")
-	}
+	assert.NoError(t, err)
+	assert.True(t, healthy, "Healthy() should return true when configured to ignore broker errors")
 }
 
 func TestHealthChecker_DefaultBrokerErrorBehavior(t *testing.T) {
@@ -485,10 +412,8 @@ func TestHealthChecker_Healthy_MultiPartition_SingleUnhealthy(t *testing.T) {
 		},
 	}
 
-	hc, err := NewHealthChecker(config, client)
-	if err != nil {
-		t.Fatalf("NewHealthChecker() error = %v", err)
-	}
+	clock := &mockClock{currentTime: time.Now()}
+	hc := newTestHealthChecker(config, client, clock)
 
 	healthyMsg1 := &mockMessage{
 		topic:     "topic-a",
@@ -507,38 +432,18 @@ func TestHealthChecker_Healthy_MultiPartition_SingleUnhealthy(t *testing.T) {
 	}
 
 	// track all messages
-	hc.tracker.track(healthyMsg1)
-	hc.tracker.track(staleMsg)
-	hc.tracker.track(healthyMsg2)
+	hc.Track(context.Background(), healthyMsg1)
+	hc.Track(context.Background(), staleMsg)
+	hc.Track(context.Background(), healthyMsg2)
 
-	// set timestamps - healthy messages stay recent, stale message gets old timestamp
-	now := time.Now()
-
-	hc.tracker.mu.Lock()
-	hc.tracker.topicPartitionOffsets["topic-a"][0] = OffsetTimestamp{
-		Offset:    100,
-		Timestamp: now, // healthy
-	}
-	hc.tracker.topicPartitionOffsets["topic-a"][1] = OffsetTimestamp{
-		Offset:    150,
-		Timestamp: now.Add(-time.Minute), // stale
-	}
-	hc.tracker.topicPartitionOffsets["topic-b"][0] = OffsetTimestamp{
-		Offset:    100,
-		Timestamp: now, // healthy
-	}
-	hc.tracker.mu.Unlock()
+	// advance time to make the stale message trigger the check
+	clock.Add(config.StuckTimeout + time.Millisecond)
 
 	ctx := context.Background()
 
 	healthy, err := hc.Healthy(ctx)
-	if err != nil {
-		t.Errorf("Healthy() unexpected error = %v", err)
-	}
-
-	if healthy {
-		t.Error("Healthy() should return false when any partition is stuck behind available messages")
-	}
+	assert.NoError(t, err)
+	assert.False(t, healthy, "Healthy() should return false when any partition is stuck behind available messages")
 }
 
 type mockBrokerClient struct {

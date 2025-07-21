@@ -38,7 +38,7 @@ func TestTracker_Track(t *testing.T) {
 		offset:    100,
 	}
 
-	tr.track(msg)
+	tr.track(msg, &realClock{})
 
 	offsets := tr.currentOffsets()
 	assert.Len(t, offsets, 1)
@@ -64,11 +64,11 @@ func TestTracker_Track_SameOffset(t *testing.T) {
 	}
 
 	// track the same message twice
-	tr.track(msg)
+	tr.track(msg, &realClock{})
 	firstTime := tr.currentOffsets()["test-topic"][0].Timestamp
 
 	time.Sleep(10 * time.Millisecond) // ensure time difference
-	tr.track(msg)
+	tr.track(msg, &realClock{})
 	secondTime := tr.currentOffsets()["test-topic"][0].Timestamp
 
 	// timestamp should not change for same offset
@@ -92,11 +92,11 @@ func TestTracker_Track_DifferentOffset(t *testing.T) {
 		offset:    101,
 	}
 
-	tr.track(msg1)
+	tr.track(msg1, &realClock{})
 	firstTime := tr.currentOffsets()["test-topic"][0].Timestamp
 
 	time.Sleep(10 * time.Millisecond)
-	tr.track(msg2)
+	tr.track(msg2, &realClock{})
 	secondTime := tr.currentOffsets()["test-topic"][0].Timestamp
 
 	// timestamp should change for different offset
@@ -115,7 +115,7 @@ func TestTracker_CurrentOffsets_Copy(t *testing.T) {
 		offset:    100,
 	}
 
-	tr.track(msg)
+	tr.track(msg, &realClock{})
 	offsets1 := tr.currentOffsets()
 	offsets2 := tr.currentOffsets()
 
@@ -140,7 +140,7 @@ func TestTracker_Drop(t *testing.T) {
 		offset:    100,
 	}
 
-	tr.track(msg)
+	tr.track(msg, &realClock{})
 
 	// verify it exists
 	offsets := tr.currentOffsets()
@@ -187,7 +187,7 @@ func TestTracker_Concurrent(t *testing.T) {
 				partition: 0,
 				offset:    offset,
 			}
-			tr.track(msg)
+			tr.track(msg, &realClock{})
 		}(int64(i))
 	}
 

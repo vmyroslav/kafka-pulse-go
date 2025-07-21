@@ -19,7 +19,8 @@ func newTracker() *tracker {
 	return &tracker{topicPartitionOffsets: make(map[string]map[int32]OffsetTimestamp)}
 }
 
-func (t *tracker) track(m TrackableMessage) {
+// TODO: inject clock inside tracker
+func (t *tracker) track(m TrackableMessage, clock Clock) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -33,7 +34,7 @@ func (t *tracker) track(m TrackableMessage) {
 	if existing.Offset != m.Offset() || existing.Timestamp.IsZero() {
 		t.topicPartitionOffsets[m.Topic()][m.Partition()] = OffsetTimestamp{
 			Offset:    m.Offset(),
-			Timestamp: time.Now(),
+			Timestamp: clock.Now(),
 		}
 	}
 }

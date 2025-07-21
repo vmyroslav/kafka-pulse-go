@@ -13,24 +13,6 @@ import (
 	"github.com/vmyroslav/kafka-pulse-go/pulse"
 )
 
-// setupMockCluster creates a mock cluster for testing
-func setupMockCluster(t *testing.T) (*kafka.MockCluster, *kafka.ConfigMap) {
-	t.Helper()
-
-	mockCluster, err := kafka.NewMockCluster(1)
-	require.NoError(t, err, "failed to create mock cluster")
-
-	err = mockCluster.SetBrokerUp(1)
-	require.NoError(t, err, "failed to set broker up in mock cluster")
-
-	bootstrapServers := mockCluster.BootstrapServers()
-	require.NotEmpty(t, bootstrapServers, "mock cluster did not provide bootstrap servers")
-
-	configMap := &kafka.ConfigMap{"bootstrap.servers": bootstrapServers}
-
-	return mockCluster, configMap
-}
-
 func TestMessage_Wrapper(t *testing.T) {
 	t.Parallel()
 
@@ -227,6 +209,8 @@ func TestHealthChecker_WithClientAdapter(t *testing.T) {
 	})
 
 	t.Run("a running consumer should be unhealthy when it gets stuck", func(t *testing.T) {
+		t.Parallel()
+
 		topic := fmt.Sprintf("live-consumer-topic-%d", 1)
 
 		bootstrapServers := mockCluster.BootstrapServers()
@@ -338,6 +322,8 @@ func TestHealthChecker_WithClientAdapter(t *testing.T) {
 	})
 
 	t.Run("multi-partition tracking - should be healthy when all partitions are caught up", func(t *testing.T) {
+		t.Parallel()
+
 		topic := "multi-partition-healthy-topic"
 		numPartitions := 3
 
@@ -1334,7 +1320,7 @@ func TestHealthChecker_HighThroughput_WithConfluentAdapter(t *testing.T) {
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 0, Offset: 1},
 		}))
 
-		// Should be healthy again
+		// should be healthy again
 		healthy, err = hc.Healthy(ctx)
 		assert.NoError(t, err)
 		assert.True(t, healthy, "consumer should be healthy after processing new message")
@@ -1421,4 +1407,22 @@ func TestHealthChecker_HighThroughput_WithConfluentAdapter(t *testing.T) {
 		assert.NoError(t, err)
 		assert.True(t, healthy, "consumer should be healthy after catching up on heavy partition")
 	})
+}
+
+// setupMockCluster creates a mock cluster for testing
+func setupMockCluster(t *testing.T) (*kafka.MockCluster, *kafka.ConfigMap) {
+	t.Helper()
+
+	mockCluster, err := kafka.NewMockCluster(1)
+	require.NoError(t, err, "failed to create mock cluster")
+
+	err = mockCluster.SetBrokerUp(1)
+	require.NoError(t, err, "failed to set broker up in mock cluster")
+
+	bootstrapServers := mockCluster.BootstrapServers()
+	require.NotEmpty(t, bootstrapServers, "mock cluster did not provide bootstrap servers")
+
+	configMap := &kafka.ConfigMap{"bootstrap.servers": bootstrapServers}
+
+	return mockCluster, configMap
 }

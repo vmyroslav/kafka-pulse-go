@@ -51,44 +51,7 @@ func (c *testClientAdapter) GetLatestOffset(_ context.Context, topic string, par
 	return latestOffset - 1, nil
 }
 
-func TestMessage_Topic(t *testing.T) {
-	t.Parallel()
-
-	consumerMsg := &sarama.ConsumerMessage{
-		Topic:     "test-topic",
-		Partition: 0,
-		Offset:    100,
-	}
-
-	msg := &Message{ConsumerMessage: consumerMsg}
-	assert.Equal(t, "test-topic", msg.Topic())
-}
-
-func TestMessage_Partition(t *testing.T) {
-	t.Parallel()
-
-	consumerMsg := &sarama.ConsumerMessage{
-		Topic:     "test-topic",
-		Partition: 5,
-		Offset:    100,
-	}
-
-	msg := &Message{ConsumerMessage: consumerMsg}
-	assert.Equal(t, int32(5), msg.Partition())
-}
-
-func TestMessage_Offset(t *testing.T) {
-	t.Parallel()
-
-	consumerMsg := &sarama.ConsumerMessage{
-		Topic:     "test-topic",
-		Partition: 0,
-		Offset:    12345,
-	}
-
-	msg := &Message{ConsumerMessage: consumerMsg}
-	assert.Equal(t, int64(12345), msg.Offset())
-}
+// Individual method tests removed - covered by TestMessage_AllFields and TestMessage_VariousConfigurations
 
 func TestMessage_AllFields(t *testing.T) {
 	t.Parallel()
@@ -196,24 +159,7 @@ func TestClientAdapter_GetLatestOffset_TopicNotFound(t *testing.T) {
 	assert.Equal(t, int64(0), offset)
 }
 
-func TestClientAdapter_GetLatestOffset_ZeroOffset(t *testing.T) {
-	t.Parallel()
-
-	mockClient := &mockOffsetClient{
-		offsets: map[string]map[int32]int64{
-			"empty-topic": {
-				0: 0, // No messages, so latest offset is -1
-			},
-		},
-	}
-
-	adapter := &testClientAdapter{client: mockClient}
-	ctx := context.Background()
-
-	offset, err := adapter.GetLatestOffset(ctx, "empty-topic", 0)
-	assert.NoError(t, err)
-	assert.Equal(t, int64(-1), offset) // 0 - 1 = -1
-}
+// TestClientAdapter_GetLatestOffset_ZeroOffset removed - covered by TestClientAdapter_OffsetCalculation
 
 func TestClientAdapter_GetLatestOffset_ContextIgnored(t *testing.T) {
 	t.Parallel()
