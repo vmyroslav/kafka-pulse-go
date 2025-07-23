@@ -50,6 +50,7 @@ func NewHealthServer(monitor pulse.Monitor, consumer *Consumer, logger *slog.Log
 	mux.HandleFunc("/control/pause", hs.pauseHandler)
 	mux.HandleFunc("/control/resume", hs.resumeHandler)
 	mux.HandleFunc("/control/slow", hs.slowHandler)
+	mux.HandleFunc("/control/rebalance", hs.rebalanceHandler)
 	mux.HandleFunc("/control/status", hs.statusHandler)
 
 	hs.server = &http.Server{
@@ -103,11 +104,11 @@ func (hs *HealthServer) healthHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		hs.logger.Error("Failed to encode health response", "error", err)
+	if err = json.NewEncoder(w).Encode(response); err != nil {
+		hs.logger.Error("failed to encode health response", "error", err)
 	}
 
-	hs.logger.Debug("Health check completed",
+	hs.logger.Debug("health check completed",
 		"status", response.Status,
 		"details", details)
 }
@@ -234,7 +235,40 @@ func (hs *HealthServer) slowHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// statusHandler returns the current consumer status
+// rebalanceHandler triggers a consumer group rebalance
+func (hs *HealthServer) rebalanceHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if err := hs.consumer.TriggerRebalance(); err != nil {
+		response := ControlResponse{
+			Status:          "error",
+			Paused:          hs.consumer.IsPaused(),
+			ProcessingDelay: hs.consumer.GetProcessingDelay(),
+			Message:         "Failed to trigger rebalance: " + err.Error(),
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(response)
+		return
+	}
+
+	response := ControlResponse{
+		Status:          "success",
+		Paused:          hs.consumer.IsPaused(),
+		ProcessingDelay: hs.consumer.GetProcessingDelay(),
+		Message:         "Consumer group rebalance triggered successfully",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
+// statusHandler returns current consumer status
 func (hs *HealthServer) statusHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)

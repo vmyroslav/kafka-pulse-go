@@ -10,7 +10,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/kafka"
 )
 
-var kafkaContainerImage = "confluentinc/confluent-local:7.7.4"
+var kafkaContainerImage = "confluentinc/confluent-local:7.8.3"
 
 type KafkaContainer struct {
 	container *kafka.KafkaContainer
@@ -18,7 +18,7 @@ type KafkaContainer struct {
 }
 
 func StartKafkaContainer(ctx context.Context, logger *slog.Logger) (*KafkaContainer, error) {
-	logger.Info("Starting Kafka container...")
+	logger.Info("starting Kafka container...")
 
 	kafkaContainer, err := kafka.Run(ctx,
 		kafkaContainerImage,
@@ -36,8 +36,9 @@ func StartKafkaContainer(ctx context.Context, logger *slog.Logger) (*KafkaContai
 
 	logger.Info("Kafka container started", "brokers", brokers)
 
-	if err := waitForKafka(brokers, logger); err != nil {
-		kafkaContainer.Terminate(ctx)
+	if err = waitForKafka(brokers, logger); err != nil {
+		_ = kafkaContainer.Terminate(ctx)
+
 		return nil, fmt.Errorf("Kafka not ready: %w", err)
 	}
 
@@ -162,7 +163,7 @@ func waitForKafka(brokers []string, logger *slog.Logger) error {
 	for i := 0; i < maxRetries; i++ {
 		client, err := sarama.NewClient(brokers, config)
 		if err == nil {
-			client.Close()
+			_ = client.Close()
 			logger.Info("Kafka is ready")
 			return nil
 		}

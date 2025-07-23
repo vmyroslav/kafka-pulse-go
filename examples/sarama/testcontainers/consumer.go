@@ -15,6 +15,7 @@ import (
 type Consumer struct {
 	client        sarama.Client
 	consumerGroup sarama.ConsumerGroup
+	groupID       string
 	monitor       pulse.Monitor
 	logger        *slog.Logger
 	ready         chan bool
@@ -22,9 +23,10 @@ type Consumer struct {
 	cancel        context.CancelFunc
 	wg            sync.WaitGroup
 
-	// Dynamic control fields
+	// control fields
 	paused          atomic.Bool
 	processingDelay atomic.Int64 // nanoseconds
+	defaultDelay    time.Duration
 }
 
 func NewConsumer(brokers []string, groupID, topic string, monitor pulse.Monitor, logger *slog.Logger) (*Consumer, error) {
@@ -48,18 +50,21 @@ func NewConsumer(brokers []string, groupID, topic string, monitor pulse.Monitor,
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	defaultDelay := 100 * time.Millisecond
 	consumer := &Consumer{
 		client:        client,
 		consumerGroup: consGroup,
+		groupID:       groupID,
 		monitor:       monitor,
 		logger:        logger,
 		ready:         make(chan bool),
 		ctx:           ctx,
 		cancel:        cancel,
+		defaultDelay:  defaultDelay,
 	}
 
-	// Set default processing delay to 100ms
-	consumer.processingDelay.Store(int64(100 * time.Millisecond))
+	// set default processing delay to 100ms
+	consumer.processingDelay.Store(int64(defaultDelay))
 
 	return consumer, nil
 }
@@ -67,19 +72,20 @@ func NewConsumer(brokers []string, groupID, topic string, monitor pulse.Monitor,
 // Pause stops message processing (simulates stuck consumer)
 func (c *Consumer) Pause() {
 	c.paused.Store(true)
-	c.logger.Info("Consumer paused - simulating stuck consumer")
+	c.logger.Info("consumer paused - simulating stuck consumer")
 }
 
-// Resume starts message processing again
+// Resume starts message processing again and resets delay to default
 func (c *Consumer) Resume() {
 	c.paused.Store(false)
-	c.logger.Info("Consumer resumed - recovering from stuck state")
+	c.processingDelay.Store(int64(c.defaultDelay))
+	c.logger.Info("consumer resumed - recovering from stuck state", "delay_reset_to", c.defaultDelay)
 }
 
 // SetProcessingDelay sets the delay between message processing
 func (c *Consumer) SetProcessingDelay(delay time.Duration) {
 	c.processingDelay.Store(int64(delay))
-	c.logger.Info("Processing delay updated", "delay", delay)
+	c.logger.Info("processing delay updated", "delay", delay)
 }
 
 // IsPaused returns current pause state
@@ -90,6 +96,29 @@ func (c *Consumer) IsPaused() bool {
 // GetProcessingDelay returns current processing delay
 func (c *Consumer) GetProcessingDelay() time.Duration {
 	return time.Duration(c.processingDelay.Load())
+}
+
+// TriggerRebalance forces a consumer group rebalance by leaving and rejoining the group
+func (c *Consumer) TriggerRebalance() error {
+	c.logger.Info("Triggering consumer group rebalance...")
+
+	// Close current consumer group
+	if err := c.consumerGroup.Close(); err != nil {
+		c.logger.Error("Failed to close consumer group during rebalance", "error", err)
+		return err
+	}
+
+	// Create new consumer group with same configuration
+	consGroup, err := sarama.NewConsumerGroupFromClient(c.groupID, c.client)
+	if err != nil {
+		c.logger.Error("Failed to create new consumer group during rebalance", "error", err)
+		return err
+	}
+
+	c.consumerGroup = consGroup
+	c.logger.Info("Consumer group rebalance triggered successfully")
+
+	return nil
 }
 
 func (c *Consumer) Start(topic string) error {
@@ -119,8 +148,8 @@ func (c *Consumer) Start(topic string) error {
 func (c *Consumer) Stop() {
 	c.cancel()
 	c.wg.Wait()
-	c.consumerGroup.Close()
-	c.client.Close()
+	_ = c.consumerGroup.Close()
+	_ = c.client.Close()
 }
 
 type consumerGroupHandler struct {
@@ -159,7 +188,7 @@ func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession,
 			// instance is losing its claim to this partition.
 			//
 			// You MUST call `monitor.Release()` to purge this partition's tracking data
-			// (last offset and timestamp) from this specific consumer's health monitor.
+			// from this specific consumer's health monitor.
 			//
 			// Failure to do this would cause this instance to continue reporting stale
 			// health information for a partition it no longer owns, leading to false
@@ -172,7 +201,6 @@ func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession,
 				return nil
 			}
 
-			// Check if consumer is paused
 			if h.consumer.paused.Load() {
 				h.consumer.logger.Debug("Consumer paused, skipping message processing",
 					"topic", message.Topic,
@@ -190,7 +218,7 @@ func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession,
 			wrappedMessage := adapter.NewMessage(message)
 			h.consumer.monitor.Track(session.Context(), wrappedMessage)
 
-			// Use configurable processing delay
+			// use configurable processing delay
 			delay := time.Duration(h.consumer.processingDelay.Load())
 			time.Sleep(delay)
 

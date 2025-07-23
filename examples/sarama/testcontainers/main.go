@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	topic                     = "test-topic"
-	consumerGroup             = "test-consumer-group"
-	healthPort                = "8080"
+	topic                     = "kafka-pulse-test-topic"
+	consumerGroup             = "kafka-pulse-consumer-group"
+	healthPort                = "8888"
 	initialMessageCount       = 20
 	continuousMessageInterval = 3 * time.Second
 )
@@ -35,7 +35,9 @@ func main() {
 		logger.Error("Failed to start Kafka container", "error", err)
 		os.Exit(1)
 	}
-	defer kafkaContainer.Stop(ctx)
+	defer func(kafkaContainer *KafkaContainer, ctx context.Context) {
+		_ = kafkaContainer.Stop(ctx)
+	}(kafkaContainer, ctx)
 
 	if err = kafkaContainer.CreateTopic(topic, 3, logger); err != nil {
 		logger.Error("Failed to create topic", "error", err)
@@ -44,7 +46,7 @@ func main() {
 
 	config := pulse.Config{
 		Logger:       logger,
-		StuckTimeout: 10 * time.Second, // Reduced for faster demonstration
+		StuckTimeout: 5 * time.Second, // reduced for faster demonstration
 	}
 
 	saramaConfig := sarama.NewConfig()
@@ -52,10 +54,12 @@ func main() {
 
 	client, err := sarama.NewClient(kafkaContainer.GetBrokers(), saramaConfig)
 	if err != nil {
-		logger.Error("Failed to create Kafka client", "error", err)
+		logger.Error("failed to create Kafka client", "error", err)
 		os.Exit(1)
 	}
-	defer client.Close()
+	defer func(client sarama.Client) {
+		_ = client.Close()
+	}(client)
 
 	brokerClient := adapter.NewClientAdapter(client)
 
@@ -79,7 +83,7 @@ func main() {
 	go func() {
 		defer wg.Done()
 		if err = consumer.Start(topic); err != nil {
-			logger.Error("Consumer failed", "error", err)
+			logger.Error("consumer failed", "error", err)
 		}
 	}()
 
@@ -87,11 +91,11 @@ func main() {
 	go func() {
 		defer wg.Done()
 		if err = healthServer.Start(); err != nil {
-			logger.Error("Health server failed", "error", err)
+			logger.Error("health server failed", "error", err)
 		}
 	}()
 
-	// Initial message production
+	// initial message production
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -103,11 +107,11 @@ func main() {
 		}
 	}()
 
-	// Continuous message production
+	// producer
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		time.Sleep(10 * time.Second) // Wait for initial messages to be produced
+		time.Sleep(1 * time.Second) // Wait for initial messages to be produced
 
 		ticker := time.NewTicker(continuousMessageInterval)
 		defer ticker.Stop()
@@ -116,9 +120,8 @@ func main() {
 		for {
 			select {
 			case <-ticker.C:
-				logger.Info("Producing continuous messages...")
-				if err := kafkaContainer.ProduceSingleMessage(topic, messageCounter, logger); err != nil {
-					logger.Error("Failed to produce continuous message", "error", err)
+				if err = kafkaContainer.ProduceSingleMessage(topic, messageCounter, logger); err != nil {
+					logger.Error("failed to produce continuous message", "error", err)
 				}
 				messageCounter++
 			case <-ctx.Done():
@@ -130,7 +133,7 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		ticker := time.NewTicker(5 * time.Second) // Faster health checks for demonstration
+		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 
 		for {
@@ -185,6 +188,7 @@ func main() {
 	logger.Info("🎛️  Control endpoints for stuck consumer demo:",
 		"pause", "curl -X POST http://localhost:"+healthPort+"/control/pause",
 		"resume", "curl -X POST http://localhost:"+healthPort+"/control/resume",
+		"rebalance", "curl -X POST http://localhost:"+healthPort+"/control/rebalance",
 		"slow", "curl -X POST http://localhost:"+healthPort+"/control/slow -H 'Content-Type: application/json' -d '{\"delay\":\"5s\"}'",
 		"status", "curl http://localhost:"+healthPort+"/control/status")
 
@@ -196,7 +200,7 @@ func main() {
 		"step5", "Watch health checks return to healthy ✅")
 
 	<-sigChan
-	logger.Info("Shutting down...")
+	logger.Info("shutting down...")
 
 	cancel()
 
@@ -204,7 +208,7 @@ func main() {
 	defer shutdownCancel()
 
 	consumer.Stop()
-	healthServer.Stop(shutdownCtx)
+	_ = healthServer.Stop(shutdownCtx)
 
 	done := make(chan struct{})
 	go func() {
@@ -214,8 +218,8 @@ func main() {
 
 	select {
 	case <-done:
-		logger.Info("Application stopped gracefully")
+		logger.Info("application stopped gracefully")
 	case <-shutdownCtx.Done():
-		logger.Warn("Shutdown timeout exceeded")
+		logger.Warn("shutdown timeout exceeded")
 	}
 }
