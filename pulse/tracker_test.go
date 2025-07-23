@@ -22,7 +22,7 @@ func (m *mockMessage) Offset() int64    { return m.offset }
 func TestNewTracker(t *testing.T) {
 	t.Parallel()
 
-	tr := newTracker()
+	tr := newTracker(&realClock{})
 	require.NotNil(t, tr)
 	assert.NotNil(t, tr.topicPartitionOffsets)
 }
@@ -30,7 +30,7 @@ func TestNewTracker(t *testing.T) {
 func TestTracker_Track(t *testing.T) {
 	t.Parallel()
 
-	tr := newTracker()
+	tr := newTracker(&realClock{})
 
 	msg := &mockMessage{
 		topic:     "test-topic",
@@ -38,7 +38,7 @@ func TestTracker_Track(t *testing.T) {
 		offset:    100,
 	}
 
-	tr.track(msg, &realClock{})
+	tr.track(msg)
 
 	offsets := tr.currentOffsets()
 	assert.Len(t, offsets, 1)
@@ -55,7 +55,7 @@ func TestTracker_Track(t *testing.T) {
 func TestTracker_Track_SameOffset(t *testing.T) {
 	t.Parallel()
 
-	tr := newTracker()
+	tr := newTracker(&realClock{})
 
 	msg := &mockMessage{
 		topic:     "test-topic",
@@ -64,11 +64,11 @@ func TestTracker_Track_SameOffset(t *testing.T) {
 	}
 
 	// track the same message twice
-	tr.track(msg, &realClock{})
+	tr.track(msg)
 	firstTime := tr.currentOffsets()["test-topic"][0].Timestamp
 
 	time.Sleep(10 * time.Millisecond) // ensure time difference
-	tr.track(msg, &realClock{})
+	tr.track(msg)
 	secondTime := tr.currentOffsets()["test-topic"][0].Timestamp
 
 	// timestamp should not change for same offset
@@ -78,7 +78,7 @@ func TestTracker_Track_SameOffset(t *testing.T) {
 func TestTracker_Track_DifferentOffset(t *testing.T) {
 	t.Parallel()
 
-	tr := newTracker()
+	tr := newTracker(&realClock{})
 
 	msg1 := &mockMessage{
 		topic:     "test-topic",
@@ -92,11 +92,11 @@ func TestTracker_Track_DifferentOffset(t *testing.T) {
 		offset:    101,
 	}
 
-	tr.track(msg1, &realClock{})
+	tr.track(msg1)
 	firstTime := tr.currentOffsets()["test-topic"][0].Timestamp
 
 	time.Sleep(10 * time.Millisecond)
-	tr.track(msg2, &realClock{})
+	tr.track(msg2)
 	secondTime := tr.currentOffsets()["test-topic"][0].Timestamp
 
 	// timestamp should change for different offset
@@ -107,7 +107,7 @@ func TestTracker_Track_DifferentOffset(t *testing.T) {
 func TestTracker_CurrentOffsets_Copy(t *testing.T) {
 	t.Parallel()
 
-	tr := newTracker()
+	tr := newTracker(&realClock{})
 
 	msg := &mockMessage{
 		topic:     "test-topic",
@@ -115,7 +115,7 @@ func TestTracker_CurrentOffsets_Copy(t *testing.T) {
 		offset:    100,
 	}
 
-	tr.track(msg, &realClock{})
+	tr.track(msg)
 	offsets1 := tr.currentOffsets()
 	offsets2 := tr.currentOffsets()
 
@@ -132,7 +132,7 @@ func TestTracker_CurrentOffsets_Copy(t *testing.T) {
 func TestTracker_Drop(t *testing.T) {
 	t.Parallel()
 
-	tr := newTracker()
+	tr := newTracker(&realClock{})
 
 	msg := &mockMessage{
 		topic:     "test-topic",
@@ -140,7 +140,7 @@ func TestTracker_Drop(t *testing.T) {
 		offset:    100,
 	}
 
-	tr.track(msg, &realClock{})
+	tr.track(msg)
 
 	// verify it exists
 	offsets := tr.currentOffsets()
@@ -159,7 +159,7 @@ func TestTracker_Drop(t *testing.T) {
 func TestTracker_Drop_NonexistentPartition(t *testing.T) {
 	t.Parallel()
 
-	tr := newTracker()
+	tr := newTracker(&realClock{})
 
 	// should not panic when dropping non-existent partition
 	tr.drop("nonexistent-topic", 0)
@@ -169,7 +169,7 @@ func TestTracker_Drop_NonexistentPartition(t *testing.T) {
 func TestTracker_Concurrent(t *testing.T) {
 	t.Parallel()
 
-	tr := newTracker()
+	tr := newTracker(&realClock{})
 
 	var wg sync.WaitGroup
 
@@ -187,7 +187,7 @@ func TestTracker_Concurrent(t *testing.T) {
 				partition: 0,
 				offset:    offset,
 			}
-			tr.track(msg, &realClock{})
+			tr.track(msg)
 		}(int64(i))
 	}
 

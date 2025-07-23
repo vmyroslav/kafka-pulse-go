@@ -61,13 +61,15 @@ func NewHealthChecker(cfg Config, client BrokerClient) (*HealthChecker, error) {
 		logger = cfg.Logger
 	}
 
+	clock := &realClock{}
+
 	return &HealthChecker{
 		client:             client,
-		tracker:            newTracker(),
+		tracker:            newTracker(clock),
 		stuckTimeout:       cfg.StuckTimeout,
 		logger:             logger,
 		ignoreBrokerErrors: cfg.IgnoreBrokerErrors,
-		clock:              &realClock{},
+		clock:              clock,
 	}, nil
 }
 
@@ -125,7 +127,7 @@ func (h *HealthChecker) Healthy(ctx context.Context) (bool, error) {
 }
 
 func (h *HealthChecker) Track(_ context.Context, msg TrackableMessage) {
-	h.tracker.track(msg, h.clock)
+	h.tracker.track(msg)
 }
 
 func (h *HealthChecker) Release(_ context.Context, topic string, partition int32) {

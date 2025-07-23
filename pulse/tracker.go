@@ -11,16 +11,19 @@ type OffsetTimestamp struct {
 }
 
 type tracker struct {
+	clock                 Clock
 	topicPartitionOffsets map[string]map[int32]OffsetTimestamp
 	mu                    sync.RWMutex
 }
 
-func newTracker() *tracker {
-	return &tracker{topicPartitionOffsets: make(map[string]map[int32]OffsetTimestamp)}
+func newTracker(clock Clock) *tracker {
+	return &tracker{
+		topicPartitionOffsets: make(map[string]map[int32]OffsetTimestamp),
+		clock:                 clock,
+	}
 }
 
-// TODO: inject clock inside tracker
-func (t *tracker) track(m TrackableMessage, clock Clock) {
+func (t *tracker) track(m TrackableMessage) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -34,7 +37,7 @@ func (t *tracker) track(m TrackableMessage, clock Clock) {
 	if existing.Offset != m.Offset() || existing.Timestamp.IsZero() {
 		t.topicPartitionOffsets[m.Topic()][m.Partition()] = OffsetTimestamp{
 			Offset:    m.Offset(),
-			Timestamp: clock.Now(),
+			Timestamp: t.clock.Now(),
 		}
 	}
 }

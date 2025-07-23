@@ -83,6 +83,7 @@ func newTestHealthChecker(config Config, client BrokerClient, clock Clock) *Heal
 	}
 
 	hc.clock = clock
+	hc.tracker = newTracker(clock)
 
 	return hc
 }
@@ -218,7 +219,7 @@ func TestHealthChecker_Healthy_StuckConsumer(t *testing.T) {
 	ctx := context.Background()
 
 	healthy, err := hc.Healthy(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.False(t, healthy, "Healthy() should return false for stuck consumer")
 }
 
@@ -257,7 +258,7 @@ func TestHealthChecker_Healthy_IdleConsumer(t *testing.T) {
 	ctx := context.Background()
 
 	healthy, err := hc.Healthy(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.True(t, healthy, "Healthy() should return true for idle but caught up consumer")
 }
 
@@ -293,7 +294,7 @@ func TestHealthChecker_Healthy_BrokerError_FailByDefault(t *testing.T) {
 	ctx := context.Background()
 
 	healthy, err := hc.Healthy(ctx)
-	assert.Error(t, err, "Healthy() should return error on broker failure by default")
+	require.Error(t, err, "Healthy() should return error on broker failure by default")
 	assert.False(t, healthy, "Healthy() should return false on broker errors by default")
 }
 
@@ -329,7 +330,7 @@ func TestHealthChecker_Healthy_BrokerError_IgnoreWhenConfigured(t *testing.T) {
 	ctx := context.Background()
 
 	healthy, err := hc.Healthy(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.True(t, healthy, "Healthy() should return true when configured to ignore broker errors")
 }
 
@@ -442,7 +443,7 @@ func TestHealthChecker_Healthy_MultiPartition_SingleUnhealthy(t *testing.T) {
 	ctx := context.Background()
 
 	healthy, err := hc.Healthy(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.False(t, healthy, "Healthy() should return false when any partition is stuck behind available messages")
 }
 
