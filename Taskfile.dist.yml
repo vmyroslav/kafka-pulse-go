@@ -190,3 +190,129 @@ tasks:
       - task: ci:changelog:extract
       - task: ci:changelog:update
         vars: { VERSION: "v{{.VERSION}}" }
+
+  # Component-specific release tasks
+  ci:prepare-release:core:
+    desc: Prepares core library release
+    summary: |
+      Usage: task ci:prepare-release:core VERSION=1.2.0
+      Prepares a release for the core library only.
+    vars:
+      VERSION: '{{.VERSION}}'
+    preconditions:
+      - sh: 'test -n "{{.VERSION}}"'
+        msg: "VERSION variable is required. Usage: task ci:prepare-release:core VERSION=1.2.3"
+      - sh: 'echo "{{.VERSION}}" | grep -qE "^[0-9]+\.[0-9]+\.[0-9]+$"'
+        msg: "Version format must be 'X.Y.Z'. Passed: {{.VERSION}}"
+      - sh: "test -n \"$(awk '/^## \\[Unreleased\\]/{flag=1; next} /^## \\[/{flag=0} flag' CHANGELOG.md)\""
+        msg: "❌ The [Unreleased] section in core CHANGELOG.md is empty. Nothing to release."
+    cmds:
+      - task: ci:check-version-bump:core
+        vars: { VERSION: "{{.VERSION}}" }
+      - task: ci:changelog:extract:core
+        vars: { RELEASE_NOTES_FILE: "release-notes-core.md" }
+      - task: ci:changelog:update:core
+        vars: { VERSION: "v{{.VERSION}}" }
+
+  ci:prepare-release:sarama:
+    desc: Prepares sarama adapter release
+    summary: |
+      Usage: task ci:prepare-release:sarama VERSION=1.0.0
+      Prepares a release for the sarama adapter only.
+    vars:
+      VERSION: '{{.VERSION}}'
+    preconditions:
+      - sh: 'test -n "{{.VERSION}}"'
+        msg: "VERSION variable is required. Usage: task ci:prepare-release:sarama VERSION=1.0.0"
+      - sh: 'echo "{{.VERSION}}" | grep -qE "^[0-9]+\.[0-9]+\.[0-9]+$"'
+        msg: "Version format must be 'X.Y.Z'. Passed: {{.VERSION}}"
+      - sh: "test -n \"$(awk '/^## \\[Unreleased\\]/{flag=1; next} /^## \\[/{flag=0} flag' adapter/sarama/CHANGELOG.md)\""
+        msg: "❌ The [Unreleased] section in sarama CHANGELOG.md is empty. Nothing to release."
+    cmds:
+      - task: ci:check-version-bump:sarama
+        vars: { VERSION: "{{.VERSION}}" }
+      - task: ci:changelog:extract:sarama
+        vars: { RELEASE_NOTES_FILE: "release-notes-sarama.md" }
+      - task: ci:changelog:update:sarama
+        vars: { VERSION: "sarama/v{{.VERSION}}" }
+
+  ci:prepare-release:confluentic:
+    desc: Prepares confluentic adapter release
+    summary: |
+      Usage: task ci:prepare-release:confluentic VERSION=1.0.0
+      Prepares a release for the confluentic adapter only.
+    vars:
+      VERSION: '{{.VERSION}}'
+    preconditions:
+      - sh: 'test -n "{{.VERSION}}"'
+        msg: "VERSION variable is required. Usage: task ci:prepare-release:confluentic VERSION=1.0.0"
+      - sh: 'echo "{{.VERSION}}" | grep -qE "^[0-9]+\.[0-9]+\.[0-9]+$"'
+        msg: "Version format must be 'X.Y.Z'. Passed: {{.VERSION}}"
+      - sh: "test -n \"$(awk '/^## \\[Unreleased\\]/{flag=1; next} /^## \\[/{flag=0} flag' adapter/confluentic/CHANGELOG.md)\""
+        msg: "❌ The [Unreleased] section in confluentic CHANGELOG.md is empty. Nothing to release."
+    cmds:
+      - task: ci:check-version-bump:confluentic
+        vars: { VERSION: "{{.VERSION}}" }
+      - task: ci:changelog:extract:confluentic
+        vars: { RELEASE_NOTES_FILE: "release-notes-confluentic.md" }
+      - task: ci:changelog:update:confluentic
+        vars: { VERSION: "confluentic/v{{.VERSION}}" }
+
+  ci:prepare-release:segmentio:
+    desc: Prepares segmentio adapter release
+    summary: |
+      Usage: task ci:prepare-release:segmentio VERSION=1.0.0
+      Prepares a release for the segmentio adapter only.
+    vars:
+      VERSION: '{{.VERSION}}'
+    preconditions:
+      - sh: 'test -n "{{.VERSION}}"'
+        msg: "VERSION variable is required. Usage: task ci:prepare-release:segmentio VERSION=1.0.0"
+      - sh: 'echo "{{.VERSION}}" | grep -qE "^[0-9]+\.[0-9]+\.[0-9]+$"'
+        msg: "Version format must be 'X.Y.Z'. Passed: {{.VERSION}}"
+      - sh: "test -n \"$(awk '/^## \\[Unreleased\\]/{flag=1; next} /^## \\[/{flag=0} flag' adapter/segmentio/CHANGELOG.md)\""
+        msg: "❌ The [Unreleased] section in segmentio CHANGELOG.md is empty. Nothing to release."
+    cmds:
+      - task: ci:check-version-bump:segmentio
+        vars: { VERSION: "{{.VERSION}}" }
+      - task: ci:changelog:extract:segmentio
+        vars: { RELEASE_NOTES_FILE: "release-notes-segmentio.md" }
+      - task: ci:changelog:update:segmentio
+        vars: { VERSION: "segmentio/v{{.VERSION}}" }
+
+  ci:prepare-release:auto:
+    desc: Automatically prepare releases for all changed components
+    summary: |
+      Usage: task ci:prepare-release:auto
+      Detects changed components and prompts for version numbers for each.
+    cmds:
+      - task: ci:detect-changes
+      - |
+        echo "🚀 Preparing releases for changed components..."
+        CHANGED_COMPONENTS=$(cat .changed-components)
+        
+        if [ -z "$CHANGED_COMPONENTS" ]; then
+          echo "ℹ️  No components have changes. Nothing to release."
+          exit 0
+        fi
+        
+        for component in $CHANGED_COMPONENTS; do
+          echo ""
+          echo "📦 Component: $component"
+          read -p "Enter version for $component (X.Y.Z format): " version
+          
+          if [ -z "$version" ]; then
+            echo "⏭️  Skipping $component (no version provided)"
+            continue
+          fi
+          
+          echo "🔄 Preparing $component release v$version..."
+          task ci:prepare-release:$component VERSION=$version
+        done
+        
+        echo ""
+        echo "✅ All component releases prepared!"
+        echo "💡 Next steps:"
+        echo "   1. Review the changes"
+        echo "   2. Run: git add . && git commit -m 'chore: prepare releases'"
+        echo "   3. Create tags and push to trigger releases"

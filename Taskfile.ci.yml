@@ -1,5 +1,8 @@
 version: '3'
 
+vars:
+  COMPONENTS: "core sarama confluentic segmentio"
+
 tasks:
   changelog:extract:
     desc: Extract release notes from CHANGELOG.md
@@ -70,4 +73,321 @@ tasks:
         
         # If none of the conditions were met, it's an invalid bump.
         echo "❌ Version '$NEW_TAG' is not a valid semantic bump from latest git tag '$LATEST_TAG'."
+        exit 1
+
+  detect-changes:
+    desc: Detect which components have changes since last release
+    internal: true
+    cmds:
+      - |
+        echo "🔍 Detecting changes in components..."
+        CHANGED_COMPONENTS=""
+        
+        # Get latest tags for each component
+        CORE_TAG=$(git tag -l "v*" | sort -V | tail -1 || echo "")
+        SARAMA_TAG=$(git tag -l "sarama/v*" | sort -V | tail -1 || echo "")
+        CONFLUENTIC_TAG=$(git tag -l "confluentic/v*" | sort -V | tail -1 || echo "")
+        SEGMENTIO_TAG=$(git tag -l "segmentio/v*" | sort -V | tail -1 || echo "")
+        
+        # Check core changes (exclude adapters)
+        if [ -n "$CORE_TAG" ]; then
+          CORE_CHANGES=$(git diff --name-only $CORE_TAG..HEAD | grep -v "^adapter/" | grep -v "^examples/" || true)
+        else
+          CORE_CHANGES=$(git ls-files | grep -v "^adapter/" | grep -v "^examples/" || true)
+        fi
+        if [ -n "$CORE_CHANGES" ]; then
+          CHANGED_COMPONENTS="$CHANGED_COMPONENTS core"
+          echo "  ✅ Core library has changes"
+        fi
+        
+        # Check sarama adapter changes
+        if [ -n "$SARAMA_TAG" ]; then
+          SARAMA_CHANGES=$(git diff --name-only $SARAMA_TAG..HEAD -- adapter/sarama/ || true)
+        else
+          SARAMA_CHANGES=$(git ls-files -- adapter/sarama/ || true)
+        fi
+        if [ -n "$SARAMA_CHANGES" ]; then
+          CHANGED_COMPONENTS="$CHANGED_COMPONENTS sarama"
+          echo "  ✅ Sarama adapter has changes"
+        fi
+        
+        # Check confluentic adapter changes
+        if [ -n "$CONFLUENTIC_TAG" ]; then
+          CONFLUENTIC_CHANGES=$(git diff --name-only $CONFLUENTIC_TAG..HEAD -- adapter/confluentic/ || true)
+        else
+          CONFLUENTIC_CHANGES=$(git ls-files -- adapter/confluentic/ || true)
+        fi
+        if [ -n "$CONFLUENTIC_CHANGES" ]; then
+          CHANGED_COMPONENTS="$CHANGED_COMPONENTS confluentic"
+          echo "  ✅ Confluentic adapter has changes"
+        fi
+        
+        # Check segmentio adapter changes
+        if [ -n "$SEGMENTIO_TAG" ]; then
+          SEGMENTIO_CHANGES=$(git diff --name-only $SEGMENTIO_TAG..HEAD -- adapter/segmentio/ || true)
+        else
+          SEGMENTIO_CHANGES=$(git ls-files -- adapter/segmentio/ || true)
+        fi
+        if [ -n "$SEGMENTIO_CHANGES" ]; then
+          CHANGED_COMPONENTS="$CHANGED_COMPONENTS segmentio"
+          echo "  ✅ SegmentIO adapter has changes"
+        fi
+        
+        if [ -z "$CHANGED_COMPONENTS" ]; then
+          echo "  ℹ️  No components have changes"
+        else
+          echo "📋 Changed components:$CHANGED_COMPONENTS"
+        fi
+        
+        # Export for use in other tasks
+        echo "$CHANGED_COMPONENTS" > .changed-components
+
+  # Component-specific changelog tasks
+  changelog:extract:core:
+    desc: Extract release notes from core CHANGELOG.md
+    internal: true
+    silent: true
+    cmds:
+      - |
+        awk '/^## \[Unreleased\]/{flag=1; next} /^## \[/{flag=0} flag' CHANGELOG.md > {{.RELEASE_NOTES_FILE}}
+        if [ ! -s {{.RELEASE_NOTES_FILE}} ]; then
+          echo "Error: No changes found under '## [Unreleased]' in core CHANGELOG.md."
+          exit 1
+        fi
+        echo "   -> Core notes saved to {{.RELEASE_NOTES_FILE}}"
+
+  changelog:extract:sarama:
+    desc: Extract release notes from sarama CHANGELOG.md
+    internal: true
+    silent: true
+    cmds:
+      - |
+        awk '/^## \[Unreleased\]/{flag=1; next} /^## \[/{flag=0} flag' adapter/sarama/CHANGELOG.md > {{.RELEASE_NOTES_FILE}}
+        if [ ! -s {{.RELEASE_NOTES_FILE}} ]; then
+          echo "Error: No changes found under '## [Unreleased]' in sarama CHANGELOG.md."
+          exit 1
+        fi
+        echo "   -> Sarama notes saved to {{.RELEASE_NOTES_FILE}}"
+
+  changelog:extract:confluentic:
+    desc: Extract release notes from confluentic CHANGELOG.md
+    internal: true
+    silent: true
+    cmds:
+      - |
+        awk '/^## \[Unreleased\]/{flag=1; next} /^## \[/{flag=0} flag' adapter/confluentic/CHANGELOG.md > {{.RELEASE_NOTES_FILE}}
+        if [ ! -s {{.RELEASE_NOTES_FILE}} ]; then
+          echo "Error: No changes found under '## [Unreleased]' in confluentic CHANGELOG.md."
+          exit 1
+        fi
+        echo "   -> Confluentic notes saved to {{.RELEASE_NOTES_FILE}}"
+
+  changelog:extract:segmentio:
+    desc: Extract release notes from segmentio CHANGELOG.md
+    internal: true
+    silent: true
+    cmds:
+      - |
+        awk '/^## \[Unreleased\]/{flag=1; next} /^## \[/{flag=0} flag' adapter/segmentio/CHANGELOG.md > {{.RELEASE_NOTES_FILE}}
+        if [ ! -s {{.RELEASE_NOTES_FILE}} ]; then
+          echo "Error: No changes found under '## [Unreleased]' in segmentio CHANGELOG.md."
+          exit 1
+        fi
+        echo "   -> SegmentIO notes saved to {{.RELEASE_NOTES_FILE}}"
+
+  changelog:update:core:
+    desc: Update core CHANGELOG.md with new version
+    internal: true
+    silent: true
+    preconditions:
+      - sh: 'test -n "{{.VERSION}}"'
+        msg: "VERSION variable is not set for changelog:update:core task."
+    cmds:
+      - |
+        RELEASE_DATE=$(date +'%Y-%m-%d')
+        INSERT_TEXT="## [Unreleased]\n\n## [{{.VERSION}}] - $RELEASE_DATE"
+        sed -i "s@^## \[Unreleased\]@$INSERT_TEXT@" CHANGELOG.md
+        echo "   -> Core CHANGELOG.md updated."
+
+  changelog:update:sarama:
+    desc: Update sarama CHANGELOG.md with new version
+    internal: true
+    silent: true
+    preconditions:
+      - sh: 'test -n "{{.VERSION}}"'
+        msg: "VERSION variable is not set for changelog:update:sarama task."
+    cmds:
+      - |
+        RELEASE_DATE=$(date +'%Y-%m-%d')
+        INSERT_TEXT="## [Unreleased]\n\n## [{{.VERSION}}] - $RELEASE_DATE"
+        sed -i "s@^## \[Unreleased\]@$INSERT_TEXT@" adapter/sarama/CHANGELOG.md
+        echo "   -> Sarama CHANGELOG.md updated."
+
+  changelog:update:confluentic:
+    desc: Update confluentic CHANGELOG.md with new version
+    internal: true
+    silent: true
+    preconditions:
+      - sh: 'test -n "{{.VERSION}}"'
+        msg: "VERSION variable is not set for changelog:update:confluentic task."
+    cmds:
+      - |
+        RELEASE_DATE=$(date +'%Y-%m-%d')
+        INSERT_TEXT="## [Unreleased]\n\n## [{{.VERSION}}] - $RELEASE_DATE"
+        sed -i "s@^## \[Unreleased\]@$INSERT_TEXT@" adapter/confluentic/CHANGELOG.md
+        echo "   -> Confluentic CHANGELOG.md updated."
+
+  changelog:update:segmentio:
+    desc: Update segmentio CHANGELOG.md with new version
+    internal: true
+    silent: true
+    preconditions:
+      - sh: 'test -n "{{.VERSION}}"'
+        msg: "VERSION variable is not set for changelog:update:segmentio task."
+    cmds:
+      - |
+        RELEASE_DATE=$(date +'%Y-%m-%d')
+        INSERT_TEXT="## [Unreleased]\n\n## [{{.VERSION}}] - $RELEASE_DATE"
+        sed -i "s@^## \[Unreleased\]@$INSERT_TEXT@" adapter/segmentio/CHANGELOG.md
+        echo "   -> SegmentIO CHANGELOG.md updated."
+
+  # Component-specific version checking
+  check-version-bump:core:
+    desc: Validate semantic version bump for core
+    internal: true
+    silent: true
+    vars:
+      VERSION: "{{.VERSION}}"
+    preconditions:
+      - sh: 'test -n "{{.VERSION}}"'
+        msg: "VERSION is required for the core version check task."
+    cmds:
+      - |
+        LATEST_TAG=$(git tag -l "v*" | grep -v "/" | sort -V | tail -1 || echo "")
+        NEW_TAG="v{{.VERSION}}"
+        
+        if [ -z "$LATEST_TAG" ]; then 
+          echo "   -> No previous core git tag found. Skipping check."
+          exit 0
+        fi
+        
+        OLD_VER=${LATEST_TAG#v}
+        NEW_VER=${NEW_TAG#v}
+        
+        IFS='.' read -r old_major old_minor old_patch <<< "$OLD_VER"
+        IFS='.' read -r new_major new_minor new_patch <<< "$NEW_VER"
+        
+        if ( [ "$new_major" -eq "$((old_major + 1))" ] && [ "$new_minor" -eq 0 ] && [ "$new_patch" -eq 0 ] ) || \
+           ( [ "$new_major" -eq "$old_major" ] && [ "$new_minor" -eq "$((old_minor + 1))" ] && [ "$new_patch" -eq 0 ] ) || \
+           ( [ "$new_major" -eq "$old_major" ] && [ "$new_minor" -eq "$old_minor" ] && [ "$new_patch" -eq "$((old_patch + 1))" ] ); then
+          echo "   -> ✅ Core version $NEW_TAG is a valid bump from git tag $LATEST_TAG."
+          exit 0
+        fi
+        
+        echo "❌ Core version '$NEW_TAG' is not a valid semantic bump from latest git tag '$LATEST_TAG'."
+        exit 1
+
+  check-version-bump:sarama:
+    desc: Validate semantic version bump for sarama adapter
+    internal: true
+    silent: true
+    vars:
+      VERSION: "{{.VERSION}}"
+    preconditions:
+      - sh: 'test -n "{{.VERSION}}"'
+        msg: "VERSION is required for the sarama version check task."
+    cmds:
+      - |
+        LATEST_TAG=$(git tag -l "sarama/v*" | sort -V | tail -1 || echo "")
+        NEW_TAG="sarama/v{{.VERSION}}"
+        
+        if [ -z "$LATEST_TAG" ]; then 
+          echo "   -> No previous sarama git tag found. Skipping check."
+          exit 0
+        fi
+        
+        OLD_VER=${LATEST_TAG#sarama/v}
+        NEW_VER={{.VERSION}}
+        
+        IFS='.' read -r old_major old_minor old_patch <<< "$OLD_VER"
+        IFS='.' read -r new_major new_minor new_patch <<< "$NEW_VER"
+        
+        if ( [ "$new_major" -eq "$((old_major + 1))" ] && [ "$new_minor" -eq 0 ] && [ "$new_patch" -eq 0 ] ) || \
+           ( [ "$new_major" -eq "$old_major" ] && [ "$new_minor" -eq "$((old_minor + 1))" ] && [ "$new_patch" -eq 0 ] ) || \
+           ( [ "$new_major" -eq "$old_major" ] && [ "$new_minor" -eq "$old_minor" ] && [ "$new_patch" -eq "$((old_patch + 1))" ] ); then
+          echo "   -> ✅ Sarama version $NEW_TAG is a valid bump from git tag $LATEST_TAG."
+          exit 0
+        fi
+        
+        echo "❌ Sarama version '$NEW_TAG' is not a valid semantic bump from latest git tag '$LATEST_TAG'."
+        exit 1
+
+  check-version-bump:confluentic:
+    desc: Validate semantic version bump for confluentic adapter
+    internal: true
+    silent: true
+    vars:
+      VERSION: "{{.VERSION}}"
+    preconditions:
+      - sh: 'test -n "{{.VERSION}}"'
+        msg: "VERSION is required for the confluentic version check task."
+    cmds:
+      - |
+        LATEST_TAG=$(git tag -l "confluentic/v*" | sort -V | tail -1 || echo "")
+        NEW_TAG="confluentic/v{{.VERSION}}"
+        
+        if [ -z "$LATEST_TAG" ]; then 
+          echo "   -> No previous confluentic git tag found. Skipping check."
+          exit 0
+        fi
+        
+        OLD_VER=${LATEST_TAG#confluentic/v}
+        NEW_VER={{.VERSION}}
+        
+        IFS='.' read -r old_major old_minor old_patch <<< "$OLD_VER"
+        IFS='.' read -r new_major new_minor new_patch <<< "$NEW_VER"
+        
+        if ( [ "$new_major" -eq "$((old_major + 1))" ] && [ "$new_minor" -eq 0 ] && [ "$new_patch" -eq 0 ] ) || \
+           ( [ "$new_major" -eq "$old_major" ] && [ "$new_minor" -eq "$((old_minor + 1))" ] && [ "$new_patch" -eq 0 ] ) || \
+           ( [ "$new_major" -eq "$old_major" ] && [ "$new_minor" -eq "$old_minor" ] && [ "$new_patch" -eq "$((old_patch + 1))" ] ); then
+          echo "   -> ✅ Confluentic version $NEW_TAG is a valid bump from git tag $LATEST_TAG."
+          exit 0
+        fi
+        
+        echo "❌ Confluentic version '$NEW_TAG' is not a valid semantic bump from latest git tag '$LATEST_TAG'."
+        exit 1
+
+  check-version-bump:segmentio:
+    desc: Validate semantic version bump for segmentio adapter
+    internal: true
+    silent: true
+    vars:
+      VERSION: "{{.VERSION}}"
+    preconditions:
+      - sh: 'test -n "{{.VERSION}}"'
+        msg: "VERSION is required for the segmentio version check task."
+    cmds:
+      - |
+        LATEST_TAG=$(git tag -l "segmentio/v*" | sort -V | tail -1 || echo "")
+        NEW_TAG="segmentio/v{{.VERSION}}"
+        
+        if [ -z "$LATEST_TAG" ]; then 
+          echo "   -> No previous segmentio git tag found. Skipping check."
+          exit 0
+        fi
+        
+        OLD_VER=${LATEST_TAG#segmentio/v}
+        NEW_VER={{.VERSION}}
+        
+        IFS='.' read -r old_major old_minor old_patch <<< "$OLD_VER"
+        IFS='.' read -r new_major new_minor new_patch <<< "$NEW_VER"
+        
+        if ( [ "$new_major" -eq "$((old_major + 1))" ] && [ "$new_minor" -eq 0 ] && [ "$new_patch" -eq 0 ] ) || \
+           ( [ "$new_major" -eq "$old_major" ] && [ "$new_minor" -eq "$((old_minor + 1))" ] && [ "$new_patch" -eq 0 ] ) || \
+           ( [ "$new_major" -eq "$old_major" ] && [ "$new_minor" -eq "$old_minor" ] && [ "$new_patch" -eq "$((old_patch + 1))" ] ); then
+          echo "   -> ✅ SegmentIO version $NEW_TAG is a valid bump from git tag $LATEST_TAG."
+          exit 0
+        fi
+        
+        echo "❌ SegmentIO version '$NEW_TAG' is not a valid semantic bump from latest git tag '$LATEST_TAG'."
         exit 1
