@@ -1,6 +1,232 @@
 version: '3'
 
+silent: true
+
 vars:
   RELEASE_NOTES_FILE: release_notes.md
+  
+  COMPONENTS: [core, sarama, confluentic, segmentio]
+  ADAPTERS: [sarama, confluentic, segmentio]
+  
+  CORE_PATH: "."
+  CORE_TAG_PREFIX: ""
+  CORE_CHANGELOG: "./CHANGELOG.md"
+  
+  SARAMA_PATH: "./adapter/sarama"
+  SARAMA_TAG_PREFIX: "sarama/"
+  SARAMA_CHANGELOG: "./adapter/sarama/CHANGELOG.md"
+  
+  CONFLUENTIC_PATH: "./adapter/confluentic" 
+  CONFLUENTIC_TAG_PREFIX: "confluentic/"
+  CONFLUENTIC_CHANGELOG: "./adapter/confluentic/CHANGELOG.md"
+  
+  SEGMENTIO_PATH: "./adapter/segmentio"
+  SEGMENTIO_TAG_PREFIX: "segmentio/"
+  SEGMENTIO_CHANGELOG: "./adapter/segmentio/CHANGELOG.md"
 
 tasks:
+  # =================================================================
+  # Test Tasks
+  # =================================================================
+
+  test:core:
+    desc: Run core library tests
+    vars:
+      COVERAGE: '{{.COVERAGE | default "false"}}'
+    cmds:
+      - go test -timeout=60s -race {{if eq .COVERAGE "true"}}-covermode=atomic -coverprofile=profile.cov{{end}} ./...
+
+  test:confluentic:
+    desc: Run confluentic adapter tests (unit + integration)
+    vars:
+      COVERAGE: '{{.COVERAGE | default "false"}}'
+    deps:
+      - task: test:confluentic:unit
+        vars: { COVERAGE: "{{.COVERAGE}}" }
+      - task: test:confluentic:integration
+        vars: { COVERAGE: "{{.COVERAGE}}" }
+
+  test:sarama:
+    desc: Run sarama adapter tests (unit + integration)
+    vars:
+      COVERAGE: '{{.COVERAGE | default "false"}}'
+    deps:
+      - task: test:sarama:unit
+        vars: { COVERAGE: "{{.COVERAGE}}" }
+      - task: test:sarama:integration
+        vars: { COVERAGE: "{{.COVERAGE}}" }
+
+  test:segmentio:
+    desc: Run segmentio adapter tests (unit + integration)
+    vars:
+      COVERAGE: '{{.COVERAGE | default "false"}}'
+    deps:
+      - task: test:segmentio:unit
+        vars: { COVERAGE: "{{.COVERAGE}}" }
+      - task: test:segmentio:integration
+        vars: { COVERAGE: "{{.COVERAGE}}" }
+
+  test:integration:
+    desc: Run only integration tests (no coverage)
+    deps:
+      - for: { var: ADAPTERS, as: ADAPTER_NAME }
+        task: 'test:{{.ADAPTER_NAME}}:integration'
+
+  test:confluentic:unit:
+    desc: Run confluentic unit tests (mock cluster)
+    dir: adapter/confluentic
+    vars:
+      COVERAGE: '{{.COVERAGE | default "false"}}'
+    cmds:
+      - go test -timeout=60s -race {{if eq .COVERAGE "true"}}-covermode=atomic -coverprofile=profile.unit.cov{{end}} adapter_test.go adapter.go
+
+  test:confluentic:integration:
+    desc: Run confluentic integration tests (real containers)
+    dir: adapter/confluentic
+    vars:
+      COVERAGE: '{{.COVERAGE | default "false"}}'
+    cmds:
+      - go test -timeout=300s -race {{if eq .COVERAGE "true"}}-covermode=atomic -coverprofile=profile.integration.cov{{end}} adapter_integration_test.go adapter.go
+
+  test:sarama:unit:
+    desc: Run sarama unit tests (no containers)
+    dir: adapter/sarama
+    vars:
+      COVERAGE: '{{.COVERAGE | default "false"}}'
+    cmds:
+      - go test -timeout=60s -race {{if eq .COVERAGE "true"}}-covermode=atomic -coverprofile=profile.unit.cov{{end}} adapter_test.go adapter.go
+
+  test:sarama:integration:
+    desc: Run sarama integration tests (real containers)
+    dir: adapter/sarama
+    vars:
+      COVERAGE: '{{.COVERAGE | default "false"}}'
+    cmds:
+      - go test -timeout=300s -race {{if eq .COVERAGE "true"}}-covermode=atomic -coverprofile=profile.integration.cov{{end}} adapter_integration_test.go adapter.go
+
+  test:segmentio:unit:
+    desc: Run segmentio unit tests (no containers)
+    dir: adapter/segmentio
+    vars:
+      COVERAGE: '{{.COVERAGE | default "false"}}'
+    cmds:
+      - go test -timeout=60s -race {{if eq .COVERAGE "true"}}-covermode=atomic -coverprofile=profile.unit.cov{{end}} adapter_test.go adapter.go
+
+  test:segmentio:integration:
+    desc: Run segmentio integration tests (real containers)
+    dir: adapter/segmentio
+    vars:
+      COVERAGE: '{{.COVERAGE | default "false"}}'
+    cmds:
+      - go test -timeout=300s -race {{if eq .COVERAGE "true"}}-covermode=atomic -coverprofile=profile.integration.cov{{end}} adapter_integration_test.go adapter.go
+
+  test:coverage:
+    desc: Generate combined coverage report from all tests
+    deps:
+      - :test
+    cmds:
+      - task: test:coverage:merge
+      - task: test:coverage:report
+
+  test:coverage:merge:
+    desc: Merge all coverage files into a single profile.cov file
+    internal: true
+    cmds:
+      - |
+        # Remove existing merged coverage file
+        rm -f profile.cov.merged
+        
+        # Create temporary combined coverage file
+        echo "mode: atomic" > profile.cov.merged
+        
+        # Add core coverage (skip if doesn't exist or is the merged file)
+        if [ -f "profile.cov" ] && [ "profile.cov" != "profile.cov.merged" ]; then
+          tail -n +2 profile.cov >> profile.cov.merged
+        fi
+        
+        # Add adapter coverage files
+        for adapter in confluentic sarama segmentio; do
+          # Unit coverage
+          if [ -f "adapter/$adapter/profile.unit.cov" ]; then
+            tail -n +2 "adapter/$adapter/profile.unit.cov" >> profile.cov.merged
+          fi
+          # Integration coverage  
+          if [ -f "adapter/$adapter/profile.integration.cov" ]; then
+            tail -n +2 "adapter/$adapter/profile.integration.cov" >> profile.cov.merged
+          fi
+        done
+        
+        # Replace original with merged version
+        mv profile.cov.merged profile.cov
+        
+        # Clean up individual coverage files
+        rm -f adapter/*/profile.*.cov
+
+  test:coverage:clean:
+    desc: Clean coverage files
+    cmds:
+      - rm -f profile.cov
+      - rm -f adapter/*/profile.*.cov
+
+  test:coverage:report:
+    desc: Generate and display the HTML coverage report
+    cmds:
+      - go tool cover -html=profile.cov
+
+  # =================================================================
+  # Dependency Update Tasks
+  # =================================================================
+  
+  update-deps:core:
+    desc: Update core library dependencies
+    cmds:
+      - go get -u ./...
+      - go mod tidy
+
+  update-deps:sarama:
+    desc: Update sarama adapter dependencies
+    dir: adapter/sarama
+    cmds:
+      - go get -u ./...
+      - go mod tidy
+
+  update-deps:confluentic:
+    desc: Update confluentic adapter dependencies
+    dir: adapter/confluentic
+    cmds:
+      - go get -u ./...
+      - go mod tidy
+
+  update-deps:segmentio:
+    desc: Update segmentio adapter dependencies
+    dir: adapter/segmentio
+    cmds:
+      - go get -u ./...
+      - go mod tidy
+
+  # =================================================================
+  # Clean Tasks
+  # =================================================================
+  
+  clean:core:
+    desc: Clean and tidy core library
+    cmds:
+      - go mod tidy
+
+  clean:sarama:
+    desc: Clean and tidy sarama adapter
+    dir: adapter/sarama
+    cmds:
+      - go mod tidy
+
+  clean:confluentic:
+    desc: Clean and tidy confluentic adapter
+    dir: adapter/confluentic
+    cmds:
+      - go mod tidy
+
+  clean:segmentio:
+    desc: Clean and tidy segmentio adapter
+    dir: adapter/segmentio
+    cmds:
+      - go mod tidy

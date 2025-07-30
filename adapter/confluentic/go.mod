@@ -5,8 +5,9 @@ go 1.24
 require (
 	github.com/confluentinc/confluent-kafka-go/v2 v2.11.0
 	github.com/stretchr/testify v1.10.0
+	github.com/testcontainers/testcontainers-go v0.38.0
 	github.com/testcontainers/testcontainers-go/modules/kafka v0.38.0
-	github.com/vmyroslav/kafka-pulse-go v0.0.0-20250716091212-8776084f3ba1
+	github.com/vmyroslav/kafka-pulse-go v0.0.0-20250724210220-1a20e2385f60
 )
 
 replace github.com/vmyroslav/kafka-pulse-go => ../..
@@ -51,7 +52,6 @@ require (
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
 	github.com/shirou/gopsutil/v4 v4.25.5 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
-	github.com/testcontainers/testcontainers-go v0.38.0 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect

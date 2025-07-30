@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [sarama/v1.0.0] - 2025-07-24
-
 ### Added
 - Initial Sarama adapter implementation
 - Message wrapper implementing TrackableMessage interface  
