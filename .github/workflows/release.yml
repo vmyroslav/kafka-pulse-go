@@ -1,125 +1,75 @@
-name: Prepare Release
+name: Release
 
 on:
+  push:
+    tags:
+      - "v*"                # Core library releases: v1.2.3
+      - "sarama/v*"         # Sarama adapter releases: sarama/v1.0.0
+      - "confluentic/v*"    # Confluent adapter releases: confluentic/v1.0.0
+      - "segmentio/v*"      # SegmentIO adapter releases: segmentio/v1.0.0
   workflow_dispatch:
     inputs:
-      component:
-        description: 'The component to release (core, sarama, confluentic, segmentio)'
-        required: true
-        type: choice
-        options:
-          - core
-          - sarama
-          - confluentic
-          - segmentio
-        default: core
-      version:
-        description: 'The semantic version for the new release (e.g., 1.2.3)'
+      tag:
+        description: 'Git tag to release (e.g., v1.2.3, sarama/v1.0.0)'
         required: true
         type: string
+      draft:
+        description: 'Create draft release (review before publishing)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
 
 jobs:
-  prepare-release:
-    name: Prepare Release
+  release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Install Go
+      - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
 
-      - name: Install Task
-        uses: arduino/setup-task@v2
+      - name: Determine config path
+        id: config
+        run: |
+          # get tag from either push event or manual input
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG_NAME="${{ inputs.tag }}"
+          else
+            TAG_NAME=${GITHUB_REF#refs/tags/}
+          fi
+          
+          echo "Processing tag: $TAG_NAME"
+          
+          if [[ $TAG_NAME =~ ^v[0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
+            echo "config=.goreleaser.yaml" >> $GITHUB_OUTPUT
+            echo "workdir=." >> $GITHUB_OUTPUT
+          elif [[ $TAG_NAME =~ ^sarama/v[0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
+            echo "config=.goreleaser.yaml" >> $GITHUB_OUTPUT
+            echo "workdir=adapter/sarama" >> $GITHUB_OUTPUT
+          elif [[ $TAG_NAME =~ ^confluentic/v[0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
+            echo "config=.goreleaser.yaml" >> $GITHUB_OUTPUT
+            echo "workdir=adapter/confluentic" >> $GITHUB_OUTPUT
+          elif [[ $TAG_NAME =~ ^segmentio/v[0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
+            echo "config=.goreleaser.yaml" >> $GITHUB_OUTPUT
+            echo "workdir=adapter/segmentio" >> $GITHUB_OUTPUT
+          else
+            echo "Unknown tag format: $TAG_NAME" && exit 1
+          fi
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
         with:
-          version: 3.x
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Get CI Context
-        id: ci_context
-        run: |
-          echo "commit_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-          echo "branch_name=${{ github.ref_name }}" >> $GITHUB_OUTPUT
-          
-          # Set tag format based on component
-          COMPONENT="${{ github.event.inputs.component }}"
-          VERSION="${{ github.event.inputs.version }}"
-          
-          if [ "$COMPONENT" = "core" ]; then
-            echo "tag_name=v$VERSION" >> $GITHUB_OUTPUT
-            echo "release_title=v$VERSION" >> $GITHUB_OUTPUT
-            echo "changelog_files=CHANGELOG.md" >> $GITHUB_OUTPUT
-            echo "release_notes_file=release-notes-core.md" >> $GITHUB_OUTPUT
-          else
-            echo "tag_name=$COMPONENT/v$VERSION" >> $GITHUB_OUTPUT
-            echo "release_title=$COMPONENT/v$VERSION" >> $GITHUB_OUTPUT
-            echo "changelog_files=adapter/$COMPONENT/CHANGELOG.md" >> $GITHUB_OUTPUT
-            echo "release_notes_file=release-notes-$COMPONENT.md" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Lint
-        uses: golangci/golangci-lint-action@v8
-
-      - name: Tests
-        run: task test
-
-      - name: Prepare Release Changelog
-        run: task ci:prepare-release:${{ github.event.inputs.component }} VERSION=${{ github.event.inputs.version }}
-
-      - name: Commit and Push
-        id: commit_changelog
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Add the appropriate changelog file(s)
-          git add ${{ steps.ci_context.outputs.changelog_files }}
-          
-          if git diff --staged --quiet; then
-            echo "No changes to commit in changelog files."
-            echo "commit_sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
-          else
-            COMPONENT="${{ github.event.inputs.component }}"
-            VERSION="${{ github.event.inputs.version }}"
-            TAG_NAME="${{ steps.ci_context.outputs.tag_name }}"
-            
-            git commit -m "chore(release): Update $COMPONENT changelog for $TAG_NAME"
-            NEW_COMMIT_SHA=$(git rev-parse HEAD)
-            echo "commit_sha=$NEW_COMMIT_SHA" >> $GITHUB_OUTPUT
-          
-            echo "Tagging commit $NEW_COMMIT_SHA with $TAG_NAME"
-            git tag "$TAG_NAME" "$NEW_COMMIT_SHA"
-          
-            echo "Pushing commit and tag to origin"
-            git push origin ${{ github.ref_name }}
-            git push origin "$TAG_NAME"
-          fi
-
-      - name: Create Draft Release
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean --config ${{ steps.config.outputs.config }}${{ inputs.draft == 'true' && ' --draft' || '' }}
+          workdir: ${{ steps.config.outputs.workdir }}
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG_NAME="${{ steps.ci_context.outputs.tag_name }}"
-          RELEASE_TITLE="${{ steps.ci_context.outputs.release_title }}"
-          RELEASE_NOTES_FILE="${{ steps.ci_context.outputs.release_notes_file }}"
-          COMMIT_SHA=${{ steps.commit_changelog.outputs.commit_sha }}
-          COMPONENT="${{ github.event.inputs.component }}"
-          
-          # Create final release notes
-          cat "$RELEASE_NOTES_FILE" > final_body.md
-          echo -e "\n\n---\n" >> final_body.md
-          echo "_**Component:** \`$COMPONENT\`_" >> final_body.md
-          echo "_**Branch:** \`${{ github.ref_name }}\`_" >> final_body.md
-          echo "_**Commit:** \`$(echo $COMMIT_SHA | cut -c1-7)\`_" >> final_body.md
-
-          gh release create "$TAG_NAME" \
-            --title "$RELEASE_TITLE" \
-            --notes-file final_body.md \
-            --draft
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

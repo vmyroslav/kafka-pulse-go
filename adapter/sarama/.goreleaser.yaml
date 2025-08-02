@@ -1,0 +1,79 @@
+version: 2
+
+project_name: kafka-pulse-go-sarama
+
+builds:
+  - id: skip-build
+    skip: true
+
+archives:
+  - id: sarama-source
+    name_template: "kafka-pulse-go-sarama-{{ .Version }}-source"
+    files:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "README.md"
+      - "CHANGELOG.md"
+      - "!**/*_test.go"
+      - "!dist/**/*"
+
+checksum:
+  name_template: "kafka-pulse-go-sarama-{{ .Version }}-checksums.txt"
+
+source:
+  enabled: true
+  name_template: "kafka-pulse-go-sarama-{{ .Version }}-full-source"
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: Performance improvements
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: Documentation updates
+      regexp: '^.*?docs(\([[:word:]]+\))??!?:.+$'
+      order: 3
+    - title: Other work
+      order: 999
+  filters:
+    exclude:
+      - "^test:"
+      - "^chore:"
+      - "merge conflict"
+      - "Merge pull request"
+      - "Merge remote-tracking branch"
+      - "Merge branch"
+
+
+release:
+  github:
+    owner: vmyroslav
+    name: kafka-pulse-go
+  name_template: "Sarama Adapter {{ .Version }}"
+  header: |
+    ## Sarama Adapter {{ .Tag }}
+    
+    This release contains updates to the Sarama adapter for kafka-pulse-go.
+    
+    ### Installation
+    ```bash
+    go get github.com/vmyroslav/kafka-pulse-go/adapter/sarama@{{ .Tag }}
+    ```
+    
+    ### What's Changed
+  footer: |
+    ### Other Components
+    - [Core Library](https://github.com/vmyroslav/kafka-pulse-go/releases?q=v)
+    - [Confluent Adapter](https://github.com/vmyroslav/kafka-pulse-go/releases?q=confluentic%2F)
+    - [SegmentIO Adapter](https://github.com/vmyroslav/kafka-pulse-go/releases?q=segmentio%2F)
+    
+    **Full Changelog**: https://github.com/vmyroslav/kafka-pulse-go/compare/{{ .PreviousTag }}...{{ .Tag }}
+  prerelease: auto

@@ -1,0 +1,84 @@
+version: 2
+
+project_name: kafka-pulse-go
+
+builds:
+  - id: skip-build
+    skip: true
+
+archives:
+  - id: core-source
+    name_template: "kafka-pulse-go-{{ .Version }}-source"
+    files:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "README.md"
+      - "LICENSE"
+      - "CHANGELOG.md"
+      - "CLAUDE.md"
+      - "!dist/**/*"
+      - "!**/*_test.go"
+      - "!adapter/**/*"
+      - "!examples/**/*"
+
+checksum:
+  name_template: "kafka-pulse-go-{{ .Version }}-checksums.txt"
+
+source:
+  enabled: true
+  name_template: "kafka-pulse-go-{{ .Version }}-full-source"
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: Performance improvements
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: Documentation updates
+      regexp: '^.*?docs(\([[:word:]]+\))??!?:.+$'
+      order: 3
+    - title: Other work
+      order: 999
+  filters:
+    exclude:
+      - "^test:"
+      - "^chore:"
+      - "merge conflict"
+      - "Merge pull request"
+      - "Merge remote-tracking branch"
+      - "Merge branch"
+
+
+release:
+  github:
+    owner: vmyroslav
+    name: kafka-pulse-go
+  name_template: "Core Library v{{ .Version }}"
+  header: |
+    ## kafka-pulse-go Core Library {{ .Tag }}
+    
+    This release contains updates to the core kafka-pulse-go library.
+    
+    ### Installation
+    ```bash
+    go get github.com/vmyroslav/kafka-pulse-go@{{ .Tag }}
+    ```
+    
+    ### What's Changed
+  footer: |
+    ### Adapters
+    For adapter-specific releases, see:
+    - [Sarama Adapter](https://github.com/vmyroslav/kafka-pulse-go/releases?q=sarama%2F)
+    - [Confluent Adapter](https://github.com/vmyroslav/kafka-pulse-go/releases?q=confluentic%2F)
+    - [SegmentIO Adapter](https://github.com/vmyroslav/kafka-pulse-go/releases?q=segmentio%2F)
+    
+    **Full Changelog**: https://github.com/vmyroslav/kafka-pulse-go/compare/{{ .PreviousTag }}...{{ .Tag }}
+  prerelease: auto

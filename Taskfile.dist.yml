@@ -6,9 +6,6 @@ includes:
   internal:
     taskfile: ./Taskfile.internal.yml
     internal: true
-  ci:
-    taskfile: ./Taskfile.ci.yml
-    internal: false
 
 tasks:
   default:
