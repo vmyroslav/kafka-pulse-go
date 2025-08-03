@@ -36,6 +36,14 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Create tag for manual dispatch
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          TAG_NAME="${{ inputs.tag }}"
+          echo "Creating tag: $TAG_NAME"
+          git tag "$TAG_NAME"
+          git push origin "$TAG_NAME"
+
       - name: Determine config path
         id: config
         run: |
