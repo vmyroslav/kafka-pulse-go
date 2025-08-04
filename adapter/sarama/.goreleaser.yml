@@ -1,6 +1,6 @@
 version: 2
 
-project_name: 'kafka-pulse-go'
+project_name: 'kafka-pulse-go-sarama'
 
 builds:
   - skip: true
@@ -11,8 +11,9 @@ archives:
     files:
       - go.mod
       - go.sum
-      - LICENSE
+      - ../../LICENSE
       - '*.go'
+      - '**/*.go'
       - README.md
       - CHANGELOG.md
       # Exclude test files and dist
@@ -34,14 +35,14 @@ release:
     owner: vmyroslav
     name: kafka-pulse-go
   
-  name_template: 'Core Library v{{ .Version }}'
+  name_template: 'Sarama Adapter v{{ .Version }}'
   
   header: |
-    This release contains updates to the core kafka-pulse-go library.
+    This release contains updates to the Sarama adapter.
 
     ### Installation
     ```bash
-    go get github.com/vmyroslav/kafka-pulse-go@{{ .Tag }}
+    go get github.com/vmyroslav/kafka-pulse-go/adapter/sarama@{{ .Tag }}
     ```
 
   footer: |

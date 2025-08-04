@@ -55,6 +55,44 @@ tasks:
       - for: { var: ADAPTERS, as: ADAPTER_NAME }
         task: 'internal:update-deps:{{.ADAPTER_NAME}}'
 
+  changelog:validate:
+    desc: Validate changelog has content for release
+    summary: |
+      Usage: task changelog:validate COMPONENT=core
+      Validates that the changelog has content in the unreleased section.
+      COMPONENT can be: core, sarama, confluentic, segmentio
+    vars:
+      COMPONENT: '{{.COMPONENT | default "core"}}'
+      CHANGELOG_PATH: '{{if eq .COMPONENT "core"}}./CHANGELOG.md{{else}}./adapter/{{.COMPONENT}}/CHANGELOG.md{{end}}'
+    cmds:
+      - |
+        echo "🔍 Validating changelog has content for {{.COMPONENT}}..."
+        
+        # Extract unreleased section to temporary file for validation
+        TEMP_UNRELEASED=$(mktemp)
+        sed -n '/^## \[Unreleased\]$/,$p' "{{.CHANGELOG_PATH}}" | sed '1d' | sed '/^## \[/,$d' > "$TEMP_UNRELEASED"
+        
+        # Check if unreleased section has any actual content (bullet points)
+        CONTENT_COUNT=$(grep -E '^-\s+' "$TEMP_UNRELEASED" | wc -l | tr -d ' ')
+        
+        if [ "$CONTENT_COUNT" -eq 0 ]; then
+          echo "::error::❌ No content found in [Unreleased] section of {{.CHANGELOG_PATH}}"
+          echo "📋 Current unreleased section:"
+          cat "$TEMP_UNRELEASED"
+          echo ""
+          echo "💡 Please add changes to the [Unreleased] section before creating a release."
+          echo "💡 Example format:"
+          echo "### Added"
+          echo "- New feature description"
+          echo "### Fixed" 
+          echo "- Bug fix description"
+          rm -f "$TEMP_UNRELEASED"
+          exit 1
+        fi
+        
+        echo "✅ Found $CONTENT_COUNT change entries in [Unreleased] section"
+        rm -f "$TEMP_UNRELEASED"
+
   changelog:extract:
     desc: Extract release notes from changelog unreleased section
     summary: |
@@ -65,43 +103,147 @@ tasks:
       COMPONENT: '{{.COMPONENT | default "core"}}'
       CHANGELOG_PATH: '{{if eq .COMPONENT "core"}}./CHANGELOG.md{{else}}./adapter/{{.COMPONENT}}/CHANGELOG.md{{end}}'
       OUTPUT_FILE: '{{.OUTPUT_FILE | default "release_notes.md"}}'
+    deps:
+      - task: changelog:validate
+        vars: { COMPONENT: "{{.COMPONENT}}" }
     cmds:
       - |
         echo "📋 Extracting unreleased notes for {{.COMPONENT}} from {{.CHANGELOG_PATH}}"
-        # Extract unreleased content and filter empty sections
-        TEMP_FILE=$(mktemp)
-        sed -n '/^## \[Unreleased\]$/,/^## /p' "{{.CHANGELOG_PATH}}" | sed '$d' | sed '1d' > "$TEMP_FILE"
         
-        # Filter out empty sections
-        > "{{.OUTPUT_FILE}}"
-        current_section=""
-        section_has_content=false
+        # Extract and filter release notes - matches GitHub Actions logic exactly
+        sed -n '/^## \[Unreleased\]$/,$p' "{{.CHANGELOG_PATH}}" | sed '1d' | sed '/^## \[/,$d' | awk '
+        /^### / { 
+          section = $0; 
+          getline; 
+          if (/^- / || /^[*] /) { 
+            print section; 
+            print $0; 
+            while (getline && (/^- / || /^[*] / || /^$/ || /^  /)) print 
+          } 
+        }' > "{{.OUTPUT_FILE}}"
         
-        while IFS= read -r line; do
-          if [[ "$line" =~ ^###\  ]]; then
-            if [[ -n "$current_section" && "$section_has_content" == true ]]; then
-              [[ -s "{{.OUTPUT_FILE}}" ]] && echo "" >> "{{.OUTPUT_FILE}}"
-              echo "$current_section" >> "{{.OUTPUT_FILE}}"
-              echo "$section_content" >> "{{.OUTPUT_FILE}}"
-            fi
-            current_section="$line"
-            section_content=""
-            section_has_content=false
-          elif [[ -n "$line" && "$line" != "" ]]; then
-            if [[ -n "$current_section" ]]; then
-              section_content="${section_content}${section_content:+$'\n'}$line"
-              section_has_content=true
-            fi
-          fi
-        done < "$TEMP_FILE"
-        
-        if [[ -n "$current_section" && "$section_has_content" == true ]]; then
-          [[ -s "{{.OUTPUT_FILE}}" ]] && echo "" >> "{{.OUTPUT_FILE}}"
-          echo "$current_section" >> "{{.OUTPUT_FILE}}"
-          echo "$section_content" >> "{{.OUTPUT_FILE}}"
+        # Check if filtered notes file has content
+        if [ ! -s "{{.OUTPUT_FILE}}" ]; then
+          echo "::error::No content found after filtering empty sections from {{.CHANGELOG_PATH}}"
+          exit 1
         fi
         
-        rm -f "$TEMP_FILE"
         echo "✅ Release notes saved to: {{.OUTPUT_FILE}}"
-        echo "📋 Content:"
-        cat "{{.OUTPUT_FILE}}"
+
+  changelog:update:
+    desc: Update changelog for release
+    summary: |
+      Usage: task changelog:update COMPONENT=core VERSION=1.2.3
+      Updates the changelog by replacing [Unreleased] with the new version.
+      COMPONENT can be: core, sarama, confluentic, segmentio
+    vars:
+      COMPONENT: '{{.COMPONENT | default "core"}}'
+      VERSION: '{{.VERSION}}'
+      CHANGELOG_PATH: '{{if eq .COMPONENT "core"}}./CHANGELOG.md{{else}}./adapter/{{.COMPONENT}}/CHANGELOG.md{{end}}'
+    preconditions:
+      - sh: '[ -n "{{.VERSION}}" ]'
+        msg: "VERSION parameter is required"
+    deps:
+      - task: changelog:validate
+        vars: { COMPONENT: "{{.COMPONENT}}" }
+    cmds:
+      - |
+        echo "📝 Updating {{.CHANGELOG_PATH}} for version {{.VERSION}}"
+        
+        # Update the changelog file by replacing "[Unreleased]" with the new version and date
+        sed -i.bak "s/^## \[Unreleased\]$/## [Unreleased]\n\n### Added\n\n### Changed\n\n### Fixed\n\n## [{{.VERSION}}] - $(date +%Y-%m-%d)/" "{{.CHANGELOG_PATH}}"
+        rm -f "{{.CHANGELOG_PATH}}.bak"
+        
+        echo "✅ Changelog updated for {{.COMPONENT}} v{{.VERSION}}"
+
+  release:prepare:
+    desc: Prepare release (validate, extract notes, update changelog)
+    summary: |
+      Usage: task release:prepare COMPONENT=core VERSION=1.2.3
+      Prepares a release by validating changelog, extracting notes, and updating changelog.
+      COMPONENT can be: core, sarama, confluentic, segmentio
+    vars:
+      COMPONENT: '{{.COMPONENT | default "core"}}'
+      VERSION: '{{.VERSION}}'
+      RELEASE_NOTES_FILE: 'release_notes_{{.COMPONENT}}_{{.VERSION}}.md'
+    preconditions:
+      - sh: '[ -n "{{.VERSION}}" ]'
+        msg: "VERSION parameter is required"
+    cmds:
+      - task: changelog:extract
+        vars: 
+          COMPONENT: "{{.COMPONENT}}"
+          OUTPUT_FILE: "{{.RELEASE_NOTES_FILE}}"
+      - task: changelog:update
+        vars:
+          COMPONENT: "{{.COMPONENT}}"
+          VERSION: "{{.VERSION}}"
+      - |
+        echo "🎉 Release preparation complete for {{.COMPONENT}} v{{.VERSION}}"
+        echo "📄 Release notes: {{.RELEASE_NOTES_FILE}}"
+        echo "📝 Changelog updated: {{if eq .COMPONENT "core"}}./CHANGELOG.md{{else}}./adapter/{{.COMPONENT}}/CHANGELOG.md{{end}}"
+
+  release:tag:
+    desc: Create and push git tag for release
+    summary: |
+      Usage: task release:tag COMPONENT=core VERSION=1.2.3
+      Creates and pushes a git tag for the specified component and version.
+      COMPONENT can be: core, sarama, confluentic, segmentio
+    vars:
+      COMPONENT: '{{.COMPONENT | default "core"}}'
+      VERSION: '{{.VERSION}}'
+      TAG_PREFIX: '{{if eq .COMPONENT "core"}}{{else}}{{.COMPONENT}}/{{end}}'
+      TAG: '{{.TAG_PREFIX}}v{{.VERSION}}'
+    preconditions:
+      - sh: '[ -n "{{.VERSION}}" ]'
+        msg: "VERSION parameter is required"
+      - sh: 'git status --porcelain | grep -q . && echo "Working directory is dirty" || true'
+        msg: "Working directory must be clean before tagging"
+    cmds:
+      - |
+        echo "🏷️ Creating git tag {{.TAG}}"
+        git tag "{{.TAG}}" -m "Release {{.TAG}}"
+        git push origin "{{.TAG}}"
+        echo "✅ Tag {{.TAG}} created and pushed"
+
+  release:test:
+    desc: Test release build locally with GoReleaser
+    summary: |
+      Usage: task release:test COMPONENT=core
+      Tests the release build locally using GoReleaser snapshot mode.
+      COMPONENT can be: core, sarama, confluentic, segmentio
+    vars:
+      COMPONENT: '{{.COMPONENT | default "core"}}'
+      WORKDIR: '{{if eq .COMPONENT "core"}}.{{else}}adapter/{{.COMPONENT}}{{end}}'
+    cmds:
+      - |
+        echo "🧪 Testing release build for {{.COMPONENT}} from {{.WORKDIR}}"
+        export RELEASE_NOTES_CONTENT="Test release build for {{.COMPONENT}}"
+        cd "{{.WORKDIR}}" && goreleaser release --snapshot --clean
+
+  release:build:
+    desc: Build release using GoReleaser (for CI/CD)
+    summary: |
+      Usage: task release:build COMPONENT=core VERSION=1.2.3 [DRAFT=true]
+      Builds and releases using GoReleaser with the specified component config.
+      Set DRAFT=true to create a draft release.
+    vars:
+      COMPONENT: '{{.COMPONENT | default "core"}}'
+      VERSION: '{{.VERSION}}'
+      DRAFT: '{{.DRAFT | default "false"}}'
+      WORKDIR: '{{if eq .COMPONENT "core"}}.{{else}}adapter/{{.COMPONENT}}{{end}}'
+      RELEASE_NOTES_FILE: 'release_notes_{{.COMPONENT}}_{{.VERSION}}.md'
+    preconditions:
+      - sh: '[ -n "{{.VERSION}}" ]'
+        msg: "VERSION parameter is required"
+      - sh: '[ -f "{{.WORKDIR}}/.goreleaser.yml" ]'
+        msg: "GoReleaser config file {{.WORKDIR}}/.goreleaser.yml not found"
+      - sh: '[ -f "{{.RELEASE_NOTES_FILE}}" ]'
+        msg: "Release notes file {{.RELEASE_NOTES_FILE}} not found. Run 'task release:prepare' first."
+    cmds:
+      - |
+        echo "📦 Building release for {{.COMPONENT}} v{{.VERSION}} from {{.WORKDIR}}"
+        export RELEASE_NOTES_CONTENT="$(cat {{.RELEASE_NOTES_FILE}})"
+        ARGS="--clean --skip=validate"
+        {{if eq .DRAFT "true"}}ARGS="$ARGS --draft"{{end}}
+        cd "{{.WORKDIR}}" && goreleaser release $ARGS
