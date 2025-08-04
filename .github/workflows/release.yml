@@ -1,32 +1,109 @@
-name: Release
+name: Create Release
 
 on:
-  push:
-    tags:
-      - "v*"                # Core library releases: v1.2.3
-      - "sarama/v*"         # Sarama adapter releases: sarama/v1.0.0
-      - "confluentic/v*"    # Confluent adapter releases: confluentic/v1.0.0
-      - "segmentio/v*"      # SegmentIO adapter releases: segmentio/v1.0.0
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'Git tag to release (e.g., v1.2.3, sarama/v1.0.0)'
+      component:
+        description: 'Component to release (core, sarama, confluentic, segmentio)'
         required: true
-        type: string
+        type: choice
+        options: [core, sarama, confluentic, segmentio]
+      version:
+        description: 'The semantic version for the new release (e.g., 1.2.3)'
+        required: true
       draft:
-        description: 'Create draft release (review before publishing)'
-        required: false
+        description: 'Create a draft release'
         type: boolean
-        default: false
+        default: true
 
 permissions:
   contents: write
 
 jobs:
+  # set up configuration variables based on the selected component.
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      component: ${{ steps.config.outputs.component }}
+      version: ${{ inputs.version }}
+      draft: ${{ inputs.draft }}
+      tag: ${{ steps.config.outputs.tag }}
+      workdir: ${{ steps.config.outputs.workdir }}
+      changelog_path: ${{ steps.config.outputs.changelog_path }}
+      project_name: ${{ steps.config.outputs.project_name }}
+      release_name: ${{ steps.config.outputs.release_name }}
+      greeting: ${{ steps.config.outputs.greeting }}
+      install_path: ${{ steps.config.outputs.install_path }}
+    steps:
+      - name: Determine Component Configuration
+        id: config
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const component = "${{ inputs.component }}";
+            const version = "${{ inputs.version }}";
+            const configs = {
+              core: {
+                tag_prefix: "",
+                workdir: ".",
+                changelog_path: "CHANGELOG.md",
+                project_name: "kafka-pulse-go",
+                release_name: `Core Library v${version}`,
+                greeting: "This release contains updates to the core kafka-pulse-go library.",
+                install_path: `github.com/vmyroslav/kafka-pulse-go`
+              },
+              sarama: {
+                tag_prefix: "sarama/",
+                workdir: "adapter/sarama",
+                changelog_path: "adapter/sarama/CHANGELOG.md",
+                project_name: "kafka-pulse-go-sarama",
+                release_name: `Sarama Adapter v${version}`,
+                greeting: "This release contains updates to the Sarama adapter.",
+                install_path: `github.com/vmyroslav/kafka-pulse-go/adapter/sarama`
+              },
+              confluentic: {
+                tag_prefix: "confluentic/",
+                workdir: "adapter/confluentic",
+                changelog_path: "adapter/confluentic/CHANGELOG.md",
+                project_name: "kafka-pulse-go-confluentic",
+                release_name: `Confluent Adapter v${version}`,
+                greeting: "This release contains updates to the Confluent Kafka Go client adapter.",
+                install_path: `github.com/vmyroslav/kafka-pulse-go/adapter/confluentic`
+              },
+              segmentio: {
+                tag_prefix: "segmentio/",
+                workdir: "adapter/segmentio",
+                changelog_path: "adapter/segmentio/CHANGELOG.md",
+                project_name: "kafka-pulse-go-segmentio",
+                release_name: `SegmentIO Adapter v${version}`,
+                greeting: "This release contains updates to the SegmentIO Kafka Go client adapter.",
+                install_path: `github.com/vmyroslav/kafka-pulse-go/adapter/segmentio`
+              }
+            };
+
+            const cfg = configs[component];
+            if (!cfg) {
+              core.setFailed(`Invalid component selected: ${component}`);
+              return;
+            }
+
+            const tag = `${cfg.tag_prefix}v${version}`;
+            
+            // set outputs for the next job
+            core.setOutput('component', component);
+            core.setOutput('tag', tag);
+            core.setOutput('workdir', cfg.workdir);
+            core.setOutput('changelog_path', cfg.changelog_path);
+            core.setOutput('project_name', cfg.project_name);
+            core.setOutput('release_name', cfg.release_name);
+            core.setOutput('greeting', cfg.greeting);
+            core.setOutput('install_path', cfg.install_path);
+
   release:
+    needs: setup
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -36,48 +113,102 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Create tag for manual dispatch
-        if: github.event_name == 'workflow_dispatch'
+      - name: Update Changelog and Extract Release Notes
+        id: changelog
         run: |
-          TAG_NAME="${{ inputs.tag }}"
-          echo "Creating tag: $TAG_NAME"
-          git tag "$TAG_NAME"
-          git push origin "$TAG_NAME"
-
-      - name: Determine config path
-        id: config
-        run: |
-          # get tag from either push event or manual input
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG_NAME="${{ inputs.tag }}"
-          else
-            TAG_NAME=${GITHUB_REF#refs/tags/}
+          RELEASE_NOTES_FILE="release_notes.md"
+          CHANGELOG_PATH="${{ needs.setup.outputs.changelog_path }}"
+          
+          echo "Validating changelog has content to release..."
+          
+          # extract unreleased section to temporary file for validation
+          TEMP_UNRELEASED=$(mktemp)
+          sed -n '/^## \[Unreleased\]$/,$p' "$CHANGELOG_PATH" | sed '1d' | sed '/^## \[/,$d' > "$TEMP_UNRELEASED"
+          
+          # Check if unreleased section has any actual content (bullet points)
+          CONTENT_COUNT=$(grep -E '^-\s+' "$TEMP_UNRELEASED" | wc -l | tr -d ' ')
+          
+          if [ "$CONTENT_COUNT" -eq 0 ]; then
+            echo "::error::❌ No content found in [Unreleased] section of $CHANGELOG_PATH"
+            echo "📋 Current unreleased section:"
+            cat "$TEMP_UNRELEASED"
+            echo ""
+            echo "💡 Please add changes to the [Unreleased] section before creating a release."
+            echo "💡 Example format:"
+            echo "### Added"
+            echo "- New feature description"
+            echo "### Fixed" 
+            echo "- Bug fix description"
+            rm -f "$TEMP_UNRELEASED"
+            exit 1
           fi
           
-          echo "Processing tag: $TAG_NAME"
+          echo "✅ Found $CONTENT_COUNT change entries in [Unreleased] section"
+          rm -f "$TEMP_UNRELEASED"
           
-          if [[ $TAG_NAME =~ ^v[0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
-            echo "config=.goreleaser.yaml" >> $GITHUB_OUTPUT
-            echo "workdir=." >> $GITHUB_OUTPUT
-          elif [[ $TAG_NAME =~ ^sarama/v[0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
-            echo "config=.goreleaser.yaml" >> $GITHUB_OUTPUT
-            echo "workdir=adapter/sarama" >> $GITHUB_OUTPUT
-          elif [[ $TAG_NAME =~ ^confluentic/v[0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
-            echo "config=.goreleaser.yaml" >> $GITHUB_OUTPUT
-            echo "workdir=adapter/confluentic" >> $GITHUB_OUTPUT
-          elif [[ $TAG_NAME =~ ^segmentio/v[0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
-            echo "config=.goreleaser.yaml" >> $GITHUB_OUTPUT
-            echo "workdir=adapter/segmentio" >> $GITHUB_OUTPUT
-          else
-            echo "Unknown tag format: $TAG_NAME" && exit 1
+          # extract and filter release notes
+          sed -n '/^## \[Unreleased\]$/,$p' "$CHANGELOG_PATH" | sed '1d' | sed '/^## \[/,$d' | awk '
+          /^### / { 
+            section = $0; 
+            getline; 
+            if (/^- / || /^[*] /) { 
+              print section; 
+              print $0; 
+              while (getline && (/^- / || /^[*] / || /^$/ || /^  /)) print 
+            } 
+          }' > "$RELEASE_NOTES_FILE"
+          
+          # Check if filtered notes file has content
+          if [ ! -s "$RELEASE_NOTES_FILE" ]; then
+            echo "::error::No content found after filtering empty sections from $CHANGELOG_PATH"
+            exit 1
           fi
+          
+          echo "✅ Extracted release notes to $RELEASE_NOTES_FILE"
+          
+          # Store release notes content for GoReleaser
+          RELEASE_NOTES_CONTENT=$(cat "$RELEASE_NOTES_FILE")
+          echo "release_notes_content<<EOF" >> $GITHUB_OUTPUT
+          echo "$RELEASE_NOTES_CONTENT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          # update the changelog file by replacing "[Unreleased]" with the new version and date.
+          sed -i "s/^## \[Unreleased\]$/## [Unreleased]\n\n### Added\n\n### Changed\n\n### Fixed\n\n## [${{ needs.setup.outputs.version }}] - $(date +%Y-%m-%d)/" "$CHANGELOG_PATH"
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # commit and push the changelog update
+          git add "$CHANGELOG_PATH"
+          git commit -m "docs(${{ needs.setup.outputs.component }}): update changelog for v${{ needs.setup.outputs.version }}"
+          git push
+          
+          echo "release_notes_file=${RELEASE_NOTES_FILE}" >> $GITHUB_OUTPUT
 
-      - name: Run GoReleaser
+      - name: 🏷️ Create and Push Git Tag
+        run: |
+          git tag ${{ needs.setup.outputs.tag }} -m "Release ${{ needs.setup.outputs.tag }}"
+          git push origin ${{ needs.setup.outputs.tag }}
+
+      - name: 📦 Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: release --clean --config ${{ steps.config.outputs.config }}${{ inputs.draft == 'true' && ' --draft' || '' }}
-          workdir: ${{ steps.config.outputs.workdir }}
+          version: ~> v2
+          args: release --clean --skip=validate ${{ needs.setup.outputs.draft == 'true' && '--draft' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMPONENT_NAME: ${{ needs.setup.outputs.component }}
+          WORKDIR: ${{ needs.setup.outputs.workdir }}
+          PROJECT_NAME: ${{ needs.setup.outputs.project_name }}
+          RELEASE_NAME: ${{ needs.setup.outputs.release_name }}
+          RELEASE_GREETING: ${{ needs.setup.outputs.greeting }}
+          INSTALL_PATH: ${{ needs.setup.outputs.install_path }}
+          GORELEASER_CURRENT_TAG: v${{ needs.setup.outputs.version }}
+          RELEASE_NOTES_CONTENT: ${{ steps.changelog.outputs.release_notes_content }}
+
+
+      - name: 🧹 Cleanup Tag on Failure
+        if: failure()
+        run: |
+          echo "❌ GoReleaser failed, cleaning up remote tag..."
+          git push --delete origin ${{ needs.setup.outputs.tag }} || true

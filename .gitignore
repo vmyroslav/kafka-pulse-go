@@ -22,4 +22,5 @@ profile.cov
 
 # Development files
 release_notes.md
+.chglog/release-notes.md
 /Taskfile.yml

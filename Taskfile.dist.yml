@@ -54,3 +54,54 @@ tasks:
       - task: internal:update-deps:core
       - for: { var: ADAPTERS, as: ADAPTER_NAME }
         task: 'internal:update-deps:{{.ADAPTER_NAME}}'
+
+  changelog:extract:
+    desc: Extract release notes from changelog unreleased section
+    summary: |
+      Usage: task changelog:extract COMPONENT=core
+      Extracts the unreleased section from changelog for release notes.
+      COMPONENT can be: core, sarama, confluentic, segmentio
+    vars:
+      COMPONENT: '{{.COMPONENT | default "core"}}'
+      CHANGELOG_PATH: '{{if eq .COMPONENT "core"}}./CHANGELOG.md{{else}}./adapter/{{.COMPONENT}}/CHANGELOG.md{{end}}'
+      OUTPUT_FILE: '{{.OUTPUT_FILE | default "release_notes.md"}}'
+    cmds:
+      - |
+        echo "📋 Extracting unreleased notes for {{.COMPONENT}} from {{.CHANGELOG_PATH}}"
+        # Extract unreleased content and filter empty sections
+        TEMP_FILE=$(mktemp)
+        sed -n '/^## \[Unreleased\]$/,/^## /p' "{{.CHANGELOG_PATH}}" | sed '$d' | sed '1d' > "$TEMP_FILE"
+        
+        # Filter out empty sections
+        > "{{.OUTPUT_FILE}}"
+        current_section=""
+        section_has_content=false
+        
+        while IFS= read -r line; do
+          if [[ "$line" =~ ^###\  ]]; then
+            if [[ -n "$current_section" && "$section_has_content" == true ]]; then
+              [[ -s "{{.OUTPUT_FILE}}" ]] && echo "" >> "{{.OUTPUT_FILE}}"
+              echo "$current_section" >> "{{.OUTPUT_FILE}}"
+              echo "$section_content" >> "{{.OUTPUT_FILE}}"
+            fi
+            current_section="$line"
+            section_content=""
+            section_has_content=false
+          elif [[ -n "$line" && "$line" != "" ]]; then
+            if [[ -n "$current_section" ]]; then
+              section_content="${section_content}${section_content:+$'\n'}$line"
+              section_has_content=true
+            fi
+          fi
+        done < "$TEMP_FILE"
+        
+        if [[ -n "$current_section" && "$section_has_content" == true ]]; then
+          [[ -s "{{.OUTPUT_FILE}}" ]] && echo "" >> "{{.OUTPUT_FILE}}"
+          echo "$current_section" >> "{{.OUTPUT_FILE}}"
+          echo "$section_content" >> "{{.OUTPUT_FILE}}"
+        fi
+        
+        rm -f "$TEMP_FILE"
+        echo "✅ Release notes saved to: {{.OUTPUT_FILE}}"
+        echo "📋 Content:"
+        cat "{{.OUTPUT_FILE}}"

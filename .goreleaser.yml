@@ -1,0 +1,56 @@
+version: 2
+
+# it will be overridden by the env var in the workflow
+project_name: 'kafka-pulse-go'
+
+builds:
+  - skip: true
+
+archives:
+  - id: source-archive
+    name_template: '{{ .ProjectName }}-{{ .Version }}-source'
+    files:
+      # common files for all components
+      - go.mod
+      - go.sum
+      - LICENSE
+      # core-specific files
+      - '{{ if eq .Env.COMPONENT_NAME "core" }}*.go{{ end }}'
+      - '{{ if eq .Env.COMPONENT_NAME "core" }}README.md{{ end }}'
+      - '{{ if eq .Env.COMPONENT_NAME "core" }}CHANGELOG.md{{ end }}'
+      # adapter-specific files
+      - '{{ if ne .Env.COMPONENT_NAME "core" }}{{ .Env.WORKDIR }}/**/*{{ end }}'
+      # universal excludes
+      - '!**/*_test.go'
+      - '!dist/**/*'
+
+checksum:
+  name_template: '{{ .ProjectName }}-{{ .Version }}-checksums.txt'
+
+source:
+  enabled: true
+  name_template: '{{ .ProjectName }}-{{ .Version }}-full-source'
+
+# disable GoReleaser's generator
+changelog:
+  disable: true
+
+release:
+  github:
+    owner: vmyroslav
+    name: kafka-pulse-go
+  
+  name_template: '{{ .Env.RELEASE_NAME }}'
+  
+  # Use custom release notes from workflow
+  header: |
+    {{ .Env.RELEASE_GREETING }}
+
+    ### Installation
+    ```bash
+    go get {{ .Env.INSTALL_PATH }}@{{ .Tag }}
+    ```
+
+  # Use the release notes content from environment variable
+  footer: |
+    {{ .Env.RELEASE_NOTES_CONTENT }}
