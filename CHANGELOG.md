@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+## [0.0.1] - 2025-08-05
+
+### Added
 - Core kafka-pulse-go library with Monitor interface
 - HealthChecker component for consumer lag detection
 - Stuck consumer detection logic (distinguishes stuck vs idle consumers)
