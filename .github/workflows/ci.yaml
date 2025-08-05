@@ -9,8 +9,8 @@ on:
     types: [opened, synchronize, reopened]
 
 jobs:
-  lint:
-    name: lint
+  lint-and-test:
+    name: Lint and Test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
