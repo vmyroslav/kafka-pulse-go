@@ -27,6 +27,8 @@ source:
   enabled: true
   name_template: '{{ .ProjectName }}-{{ .Version }}-full-source'
 
+dist: dist
+
 changelog:
   disable: true
 

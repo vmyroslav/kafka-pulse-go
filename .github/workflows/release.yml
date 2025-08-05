@@ -1,4 +1,4 @@
-name: Create Release
+name: Prepare Release
 
 on:
   workflow_dispatch:
@@ -37,18 +37,25 @@ jobs:
         uses: arduino/setup-task@v2
         with:
           version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: ~> v2
+          install-only: true
 
       - name: Prepare Release
         run: |
-          echo "🚀 Preparing release for ${{ inputs.component }} v${{ inputs.version }}"
-          task release:prepare COMPONENT=${{ inputs.component }} VERSION=${{ inputs.version }}
+          echo "Preparing release for ${{ inputs.component }} v${{ inputs.version }}"
+          task ci:release:prepare COMPONENT=${{ inputs.component }} VERSION=${{ inputs.version }}
 
       - name: Commit and Push Changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Commit changelog update
+          # commit changelog update
           CHANGELOG_PATH=$([ "${{ inputs.component }}" = "core" ] && echo "CHANGELOG.md" || echo "adapter/${{ inputs.component }}/CHANGELOG.md")
           git add "$CHANGELOG_PATH"
           git commit -m "docs(${{ inputs.component }}): update changelog for v${{ inputs.version }}"
@@ -56,11 +63,11 @@ jobs:
 
       - name: Create and Push Git Tag
         run: |
-          task release:tag COMPONENT=${{ inputs.component }} VERSION=${{ inputs.version }}
+          task ci:release:tag COMPONENT=${{ inputs.component }} VERSION=${{ inputs.version }}
 
       - name: Build and Release
         run: |
-          task release:build COMPONENT=${{ inputs.component }} VERSION=${{ inputs.version }} DRAFT=${{ inputs.draft }}
+          task ci:release:build COMPONENT=${{ inputs.component }} VERSION=${{ inputs.version }} DRAFT=${{ inputs.draft }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

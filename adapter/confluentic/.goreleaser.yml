@@ -16,7 +16,7 @@ archives:
       - '**/*.go'
       - README.md
       - CHANGELOG.md
-      # Exclude test files and dist
+      # exclude test files and dist
       - '!**/*_test.go'
       - '!dist/**/*'
 
