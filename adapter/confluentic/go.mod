@@ -7,10 +7,8 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/testcontainers/testcontainers-go v0.38.0
 	github.com/testcontainers/testcontainers-go/modules/kafka v0.38.0
-	github.com/vmyroslav/kafka-pulse-go v0.0.0-20250724210220-1a20e2385f60
+	github.com/vmyroslav/kafka-pulse-go v0.0.1
 )
-
-replace github.com/vmyroslav/kafka-pulse-go => ../..
 
 require (
 	dario.cat/mergo v1.0.1 // indirect
