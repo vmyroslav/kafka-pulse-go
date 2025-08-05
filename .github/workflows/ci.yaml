@@ -34,7 +34,7 @@ jobs:
 
       - name: Test
         run: |
-          go test -timeout=60s -race -covermode=atomic -coverprofile=$GITHUB_WORKSPACE/profile.cov ./...
+          task test
 
       - name: Submit coverage
         uses: codecov/codecov-action@v5
