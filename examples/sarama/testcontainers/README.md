@@ -1,16 +1,7 @@
 # Kafka Consumer Stuck Detection Demo
 
-This example demonstrates the kafka-pulse-go library's ability to detect stuck Kafka consumers using **dynamic control mechanisms** for interactive demonstration.
-
-## Features
-
-- **Dynamic Consumer Control**: Pause/resume consumer processing at runtime
-- **Real Kafka Environment**: Uses testcontainers to bootstrap a real Kafka cluster
-- **Sarama Integration**: Demonstrates usage with the IBM Sarama Kafka client
-- **Real-time Health Monitoring**: Health checks every 5 seconds with visual indicators
-- **Continuous Message Production**: Background message production to simulate real-world scenarios
-- **HTTP Control API**: RESTful endpoints to control consumer behavior
-- **Stuck Detection**: Detects when consumer stops processing messages for >10 seconds (configurable)
+This example demonstrates the kafka-pulse-go library's ability to detect stuck Kafka consumers. \
+It uses the Sarama adapter with testcontainers to run a real Kafka instance, simulating consumer behavior and monitoring its health.
 
 ## Interactive Demo Flow
 
@@ -62,8 +53,6 @@ This example demonstrates the kafka-pulse-go library's ability to detect stuck K
 
 ### Health Endpoints
 - **General Health**: http://localhost:8080/health
-- **Readiness**: http://localhost:8080/health/ready  
-- **Liveness**: http://localhost:8080/health/live
 
 ### Control Endpoints (NEW!)
 - **Pause Consumer**: `POST /control/pause` - Simulates stuck consumer
@@ -101,36 +90,6 @@ curl http://localhost:8080/control/status
 # Response: {"status":"success","paused":false,"processing_delay":"100ms","message":"Current consumer status"}
 ```
 
-### Health Responses
-
-**Healthy Consumer**:
-```json
-{
-  "status": "healthy",
-  "timestamp": "2024-01-15T10:30:00Z",
-  "details": {
-    "consumer_paused": false,
-    "processing_delay": "100ms",
-    "stuck_timeout": "10s"
-  }
-}
-```
-
-**Stuck Consumer**:
-```json
-{
-  "status": "unhealthy", 
-  "timestamp": "2024-01-15T10:30:45Z",
-  "details": {
-    "consumer_paused": true,
-    "processing_delay": "100ms", 
-    "stuck_timeout": "10s",
-    "warning": "Consumer is manually paused - simulating stuck state",
-    "error": "consumer appears to be stuck"
-  }
-}
-```
-
 ## Demo Scenarios
 
 ### Scenario 1: Normal Healthy Operation
@@ -148,13 +107,5 @@ curl http://localhost:8080/control/status
 2. Observe: `📊 Health Check Status icon=✅ healthy=true consumer_paused=false`
 
 ### Scenario 4: Slow Consumer Simulation
-1. Run: `curl -X POST http://localhost:8080/control/slow -H 'Content-Type: application/json' -d '{"delay":"5s"}'`
+1. Run: `curl -X POST http://localhost:8080/control/slow -H 'Content-Type: application/json' -d '{"delay":"10s"}'`
 2. Consumer will still be healthy but processing slowly
-
-## Key Benefits Demonstrated
-
-1. **Real-time Detection**: Immediately identifies when consumers stop processing
-2. **False Positive Prevention**: Distinguishes stuck consumers from idle (caught-up) consumers
-3. **Operational Control**: Allows runtime manipulation for testing and debugging
-4. **Production Ready**: Uses real Kafka with proper consumer group handling
-5. **Monitoring Integration**: HTTP endpoints compatible with monitoring systems

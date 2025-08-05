@@ -1,0 +1,41 @@
+### Kafka Pulse Demo API Requests
+
+### Health Check Endpoints
+
+# General health status
+GET http://localhost:8888/health
+Accept: application/json
+
+### Consumer Control Endpoints
+
+# Get current consumer status
+GET http://localhost:8888/control/status
+Accept: application/json
+
+###
+
+# Trigger consumer group rebalance
+POST http://localhost:8888/control/rebalance
+Content-Type: application/json
+
+###
+
+# Pause consumer - simulates stuck consumer behavior
+POST http://localhost:8888/control/pause
+Content-Type: application/json
+
+###
+
+# Resume consumer - recovers from stuck state
+POST http://localhost:8888/control/resume  
+Content-Type: application/json
+
+###
+
+# Set slow processing - simulates slow consumer with 10 second delay
+POST http://localhost:8888/control/slow
+Content-Type: application/json
+
+{
+  "delay": "10s"
+}
