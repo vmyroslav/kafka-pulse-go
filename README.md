@@ -1,4 +1,5 @@
 [![Action Status](https://github.com/vmyroslav/kafka-pulse-go/actions/workflows/ci.yaml/badge.svg)](https://github.com/vmyroslav/kafka-pulse-go/actions/workflows/ci.yaml)
+[![codecov](https://codecov.io/gh/vmyroslav/kafka-pulse-go/graph/badge.svg?token=I4VAB76KRW)](https://codecov.io/gh/vmyroslav/kafka-pulse-go)
 [![Go Report Card](https://goreportcard.com/badge/github.com/vmyroslav/kafka-pulse-go)](https://goreportcard.com/report/github.com/vmyroslav/kafka-pulse-go)
 [![Godoc](https://pkg.go.dev/badge/github.com/vmyroslav/kafka-pulse-go)](https://pkg.go.dev/github.com/vmyroslav/kafka-pulse-go)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)

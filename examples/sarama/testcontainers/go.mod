@@ -5,7 +5,7 @@ go 1.24.4
 require (
 	github.com/IBM/sarama v1.45.2
 	github.com/testcontainers/testcontainers-go/modules/kafka v0.38.0
-	github.com/vmyroslav/kafka-pulse-go v0.0.0
+	github.com/vmyroslav/kafka-pulse-go v0.0.1
 	github.com/vmyroslav/kafka-pulse-go/adapter/sarama v0.0.0
 )
 

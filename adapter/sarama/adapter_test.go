@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/IBM/sarama"
 	"github.com/stretchr/testify/assert"
@@ -320,4 +321,94 @@ func TestMessage_VariousConfigurations(t *testing.T) {
 			assert.Equal(t, tc.offset, msg.Offset())
 		})
 	}
+}
+
+// TestNewMessage provides coverage of NewMessage function
+func TestNewMessage(t *testing.T) {
+	t.Parallel()
+
+	t.Run("NewMessage with nil input", func(t *testing.T) {
+		t.Parallel()
+
+		msg := NewMessage(nil)
+		assert.NotNil(t, msg, "NewMessage should not return nil even with nil input")
+
+		impl := msg.(*Message)
+		assert.Nil(t, impl.ConsumerMessage, "Underlying ConsumerMessage should be nil")
+	})
+
+	t.Run("NewMessage preserves all message fields", func(t *testing.T) {
+		t.Parallel()
+
+		consumerMsg := &sarama.ConsumerMessage{
+			Topic:          "preserve-test",
+			Partition:      5,
+			Offset:         12345,
+			Key:            []byte("test-key"),
+			Value:          []byte("test-value"),
+			Headers:        []*sarama.RecordHeader{{Key: []byte("header-key"), Value: []byte("header-value")}},
+			Timestamp:      time.Now(),
+			BlockTimestamp: time.Now().Add(time.Minute),
+		}
+
+		msg := NewMessage(consumerMsg)
+		impl := msg.(*Message)
+
+		assert.Equal(t, consumerMsg.Topic, impl.ConsumerMessage.Topic)
+		assert.Equal(t, consumerMsg.Partition, impl.ConsumerMessage.Partition)
+		assert.Equal(t, consumerMsg.Offset, impl.ConsumerMessage.Offset)
+		assert.Equal(t, consumerMsg.Key, impl.ConsumerMessage.Key)
+		assert.Equal(t, consumerMsg.Value, impl.ConsumerMessage.Value)
+		assert.Equal(t, consumerMsg.Headers, impl.ConsumerMessage.Headers)
+		assert.Equal(t, consumerMsg.Timestamp, impl.ConsumerMessage.Timestamp)
+		assert.Equal(t, consumerMsg.BlockTimestamp, impl.ConsumerMessage.BlockTimestamp)
+	})
+
+	t.Run("NewMessage with empty strings and zero values", func(t *testing.T) {
+		t.Parallel()
+
+		consumerMsg := &sarama.ConsumerMessage{
+			Topic:     "", // empty topic
+			Partition: 0,  // zero partition
+			Offset:    0,  // zero offset
+			Key:       nil,
+			Value:     []byte{}, // empty value
+		}
+
+		msg := NewMessage(consumerMsg)
+
+		assert.Equal(t, "", msg.Topic())
+		assert.Equal(t, int32(0), msg.Partition())
+		assert.Equal(t, int64(0), msg.Offset())
+
+		impl := msg.(*Message)
+		assert.Nil(t, impl.ConsumerMessage.Key)
+		assert.Equal(t, []byte{}, impl.ConsumerMessage.Value)
+	})
+
+	t.Run("NewMessage immutability test", func(t *testing.T) {
+		t.Parallel()
+
+		originalMsg := &sarama.ConsumerMessage{
+			Topic:     "immutable-test",
+			Partition: 1,
+			Offset:    100,
+			Key:       []byte("original-key"),
+			Value:     []byte("original-value"),
+		}
+
+		msg := NewMessage(originalMsg)
+
+		originalMsg.Topic = "modified-topic"
+		originalMsg.Partition = 999
+		originalMsg.Offset = 888
+		originalMsg.Key = []byte("modified-key")
+
+		assert.Equal(t, "modified-topic", msg.Topic())
+		assert.Equal(t, int32(999), msg.Partition())
+		assert.Equal(t, int64(888), msg.Offset())
+
+		impl := msg.(*Message)
+		assert.Equal(t, []byte("modified-key"), impl.ConsumerMessage.Key)
+	})
 }

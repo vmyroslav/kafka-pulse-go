@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -359,7 +360,9 @@ func TestHealthCheckerIntegration_RealConsumerGroup_WithSaramaAdapter(t *testing
 		groupID := fmt.Sprintf("real-test-group-%s", topic)
 		consumerGroup, err := sarama.NewConsumerGroup(brokers, groupID, config)
 		require.NoError(t, err)
-		defer consumerGroup.Close()
+		defer func(consumerGroup sarama.ConsumerGroup) {
+			_ = consumerGroup.Close()
+		}(consumerGroup)
 
 		handler := &realConsumerGroupHandler{
 			hc:        hc,
@@ -368,7 +371,6 @@ func TestHealthCheckerIntegration_RealConsumerGroup_WithSaramaAdapter(t *testing
 			t:         t,
 		}
 
-		// Start consumer group in background
 		consumerCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
@@ -632,7 +634,9 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSaramaAdapter(t *testing.T) 
 
 		producer, err := sarama.NewSyncProducer(brokers, saramaClient.Config())
 		require.NoError(t, err)
-		defer producer.Close()
+		defer func(producer sarama.SyncProducer) {
+			_ = producer.Close()
+		}(producer)
 
 		messageCount := 100
 		for i := 0; i < messageCount; i++ {
@@ -798,8 +802,197 @@ func TestHealthCheckerIntegration_Concurrent_WithSaramaAdapter(t *testing.T) {
 }
 
 // TestSaramaClientAdapter_OffsetBehavior verifies that the Sarama client adapter
-// correctly subtracts 1 from the high watermark to return the offset of the
-// last existing message
+// correctly calculates the offset of the last existing message
+func TestClientAdapter_GetLatestOffset_Integration(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("GetLatestOffset with empty topic should return -1", func(t *testing.T) {
+		topic := fmt.Sprintf("empty-topic-%d", time.Now().UnixNano())
+		createTopic(t, topic, 1)
+
+		adapter := saramaadapter.NewClientAdapter(saramaClient)
+
+		latestOffset, err := adapter.GetLatestOffset(ctx, topic, 0)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(-1), latestOffset, "empty topic should return -1 as latest offset")
+	})
+
+	t.Run("GetLatestOffset with single message", func(t *testing.T) {
+		topic := fmt.Sprintf("single-msg-topic-%d", time.Now().UnixNano())
+		createTopic(t, topic, 1)
+
+		adapter := saramaadapter.NewClientAdapter(saramaClient)
+
+		producer, err := sarama.NewSyncProducer(brokers, saramaClient.Config())
+		require.NoError(t, err)
+		defer func(producer sarama.SyncProducer) {
+			_ = producer.Close()
+		}(producer)
+
+		partition, offset, err := producer.SendMessage(&sarama.ProducerMessage{
+			Topic:     topic,
+			Partition: 0,
+			Value:     sarama.StringEncoder("test message"),
+		})
+		require.NoError(t, err)
+		require.Equal(t, int32(0), partition)
+		require.Equal(t, int64(0), offset)
+
+		latestOffset, err := adapter.GetLatestOffset(ctx, topic, 0)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(0), latestOffset)
+	})
+
+	t.Run("GetLatestOffset with multiple messages", func(t *testing.T) {
+		topic := fmt.Sprintf("multi-msg-topic-%d", time.Now().UnixNano())
+		createTopic(t, topic, 1)
+
+		adapter := saramaadapter.NewClientAdapter(saramaClient)
+
+		producer, err := sarama.NewSyncProducer(brokers, saramaClient.Config())
+		require.NoError(t, err)
+		defer func(producer sarama.SyncProducer) {
+			_ = producer.Close()
+		}(producer)
+
+		messageCount := 5
+		for i := 0; i < messageCount; i++ {
+			partition, offset, err := producer.SendMessage(&sarama.ProducerMessage{
+				Topic:     topic,
+				Partition: 0,
+				Value:     sarama.StringEncoder(fmt.Sprintf("message-%d", i)),
+			})
+			require.NoError(t, err)
+			require.Equal(t, int32(0), partition)
+			require.Equal(t, int64(i), offset, "message %d should have offset %d", i, i)
+		}
+
+		// latest offset should be 4 (last message offset)
+		latestOffset, err := adapter.GetLatestOffset(ctx, topic, 0)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(4), latestOffset, "should return offset of last produced message")
+	})
+
+	t.Run("GetLatestOffset with multiple partitions", func(t *testing.T) {
+		topic := fmt.Sprintf("multi-partition-topic-%d", time.Now().UnixNano())
+		numPartitions := int32(3)
+		createTopic(t, topic, numPartitions)
+
+		adapter := saramaadapter.NewClientAdapter(saramaClient)
+
+		producer, err := sarama.NewSyncProducer(brokers, saramaClient.Config())
+		require.NoError(t, err)
+		defer func(producer sarama.SyncProducer) {
+			_ = producer.Close()
+		}(producer)
+
+		// produce multiple messages and let Kafka distribute them across partitions
+		producedMessages := 10
+		producedOffsets := make(map[int32][]int64)
+		for i := 0; i < producedMessages; i++ {
+			producedPartition, offset, err := producer.SendMessage(&sarama.ProducerMessage{
+				Topic: topic,
+				Key:   sarama.StringEncoder(fmt.Sprintf("key-%d", i)),
+				Value: sarama.StringEncoder(fmt.Sprintf("message-%d", i)),
+			})
+			require.NoError(t, err)
+			producedOffsets[producedPartition] = append(producedOffsets[producedPartition], offset)
+		}
+
+		partitionsWithMessages := 0
+		for partition := int32(0); partition < numPartitions; partition++ {
+			offsets := producedOffsets[partition]
+			if len(offsets) > 0 {
+				partitionsWithMessages++
+				expectedLatestOffset := offsets[len(offsets)-1] // Last produced offset
+
+				assert.Eventually(t, func() bool {
+					latestOffset, err := adapter.GetLatestOffset(ctx, topic, partition)
+					if err != nil {
+						t.Logf("Error getting offset for partition %d: %v", partition, err)
+						return false
+					}
+					return latestOffset == expectedLatestOffset
+				}, 3*time.Second, 100*time.Millisecond,
+					"partition %d should have latest offset %d", partition, expectedLatestOffset)
+			} else {
+				latestOffset, err := adapter.GetLatestOffset(ctx, topic, partition)
+				assert.NoError(t, err)
+				assert.Equal(t, int64(-1), latestOffset, "Empty partition should return -1")
+			}
+		}
+
+		assert.Greater(t, partitionsWithMessages, 0, "At least one partition should have received messages")
+	})
+
+	t.Run("GetLatestOffset error handling for non-existent partition", func(t *testing.T) {
+		topic := fmt.Sprintf("error-test-topic-%d", time.Now().UnixNano())
+		createTopic(t, topic, 2) // Only 2 partitions
+
+		adapter := saramaadapter.NewClientAdapter(saramaClient)
+
+		_, err := adapter.GetLatestOffset(ctx, topic, 999)
+		assert.Error(t, err, "Should return error for non-existent partition")
+	})
+
+	t.Run("GetLatestOffset error handling for non-existent topic", func(t *testing.T) {
+		nonExistentTopic := fmt.Sprintf("definitely-non-existent-topic-with-special-chars-!@#$%%^&*()-%d", time.Now().UnixNano())
+
+		adapter := saramaadapter.NewClientAdapter(saramaClient)
+
+		_, err := adapter.GetLatestOffset(ctx, nonExistentTopic, 0)
+		if err == nil {
+			t.Skip("Kafka cluster auto-creates topics - skipping non-existent topic test")
+		} else {
+			assert.Error(t, err, "should return error for non-existent topic")
+			errorMsg := strings.ToLower(err.Error())
+			if !strings.Contains(errorMsg, "unknown") && !strings.Contains(errorMsg, "invalid") {
+				t.Logf("Unexpected error message: %s", err.Error())
+			}
+			assert.NotNil(t, err, "should get an error for non-existent topic")
+		}
+	})
+
+	t.Run("GetLatestOffset consistency with high water mark behavior", func(t *testing.T) {
+		topic := fmt.Sprintf("watermark-consistency-topic-%d", time.Now().UnixNano())
+		createTopic(t, topic, 1)
+
+		adapter := saramaadapter.NewClientAdapter(saramaClient)
+
+		highWaterMark, err := saramaClient.GetOffset(topic, 0, sarama.OffsetNewest)
+		require.NoError(t, err)
+		assert.Equal(t, int64(0), highWaterMark, "empty topic should have high water mark 0")
+
+		latestOffset, err := adapter.GetLatestOffset(ctx, topic, 0)
+		assert.NoError(t, err)
+		assert.Equal(t, highWaterMark-1, latestOffset, "latest offset should be high water mark - 1")
+		assert.Equal(t, int64(-1), latestOffset)
+
+		producer, err := sarama.NewSyncProducer(brokers, saramaClient.Config())
+		require.NoError(t, err)
+		defer func(producer sarama.SyncProducer) {
+			_ = producer.Close()
+		}(producer)
+
+		_, _, err = producer.SendMessage(&sarama.ProducerMessage{
+			Topic:     topic,
+			Partition: 0,
+			Value:     sarama.StringEncoder("message"),
+		})
+		require.NoError(t, err)
+
+		highWaterMark, err = saramaClient.GetOffset(topic, 0, sarama.OffsetNewest)
+		require.NoError(t, err)
+		assert.Equal(t, int64(1), highWaterMark, "topic with one message should have high water mark 1")
+
+		latestOffset, err = adapter.GetLatestOffset(ctx, topic, 0)
+		assert.NoError(t, err)
+		assert.Equal(t, highWaterMark-1, latestOffset, "latest offset should be high water mark - 1")
+		assert.Equal(t, int64(0), latestOffset)
+	})
+}
+
 func TestSaramaClientAdapter_OffsetBehavior(t *testing.T) {
 	t.Parallel()
 
@@ -811,10 +1004,10 @@ func TestSaramaClientAdapter_OffsetBehavior(t *testing.T) {
 	adapter := saramaadapter.NewClientAdapter(saramaClient)
 
 	t.Run("empty topic should return -1", func(t *testing.T) {
-		// For an empty topic, high watermark is 0, so latest message offset should be -1
+		// for an empty topic, high watermark is 0, so latest message offset should be -1
 		latestOffset, err := adapter.GetLatestOffset(ctx, topic, 0)
 		assert.NoError(t, err)
-		assert.Equal(t, int64(-1), latestOffset, "Empty topic should return -1 as latest message offset")
+		assert.Equal(t, int64(-1), latestOffset, "empty topic should return -1 as latest message offset")
 	})
 
 	t.Run("topic with one message should return 0", func(t *testing.T) {
@@ -831,11 +1024,11 @@ func TestSaramaClientAdapter_OffsetBehavior(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.Equal(t, int32(0), partition)
-		require.Equal(t, int64(0), offset, "First message should have offset 0")
+		require.Equal(t, int64(0), offset, "first message should have offset 0")
 
 		latestOffset, err := adapter.GetLatestOffset(ctx, topic, 0)
 		assert.NoError(t, err)
-		assert.Equal(t, int64(0), latestOffset, "Topic with one message should return 0 as latest message offset")
+		assert.Equal(t, int64(0), latestOffset, "topic with one message should return 0 as latest message offset")
 	})
 
 	t.Run("topic with multiple messages should return correct latest offset", func(t *testing.T) {
@@ -854,25 +1047,25 @@ func TestSaramaClientAdapter_OffsetBehavior(t *testing.T) {
 			})
 			require.NoError(t, err)
 			require.Equal(t, int32(0), partition)
-			require.Equal(t, int64(i), offset, "Message %d should have offset %d", i, i)
+			require.Equal(t, int64(i), offset, "message %d should have offset %d", i, i)
 			lastProducedOffset = offset
 		}
 
 		latestOffset, err := adapter.GetLatestOffset(ctx, topic, 0)
 		assert.NoError(t, err)
-		assert.Equal(t, lastProducedOffset, latestOffset, "Should return offset of last produced message")
-		assert.Equal(t, int64(4), latestOffset, "After 5 messages (0-4), latest offset should be 4")
+		assert.Equal(t, lastProducedOffset, latestOffset, "should return offset of last produced message")
+		assert.Equal(t, int64(4), latestOffset, "after 5 messages (0-4), latest offset should be 4")
 	})
 
 	t.Run("verify high water mark behavior directly", func(t *testing.T) {
 		highWaterMark, err := saramaClient.GetOffset(topic, 0, sarama.OffsetNewest)
 		require.NoError(t, err)
 
-		assert.Equal(t, int64(5), highWaterMark, "High water mark should be 5 (next write position)")
+		assert.Equal(t, int64(5), highWaterMark, "high water mark should be 5 (next write position)")
 
 		latestOffset, err := adapter.GetLatestOffset(ctx, topic, 0)
 		assert.NoError(t, err)
-		assert.Equal(t, highWaterMark-1, latestOffset, "Adapter should return high water mark minus 1")
+		assert.Equal(t, highWaterMark-1, latestOffset, "adapter should return high water mark minus 1")
 	})
 
 	t.Run("verify consumer can read up to latest offset", func(t *testing.T) {
@@ -907,9 +1100,9 @@ func TestSaramaClientAdapter_OffsetBehavior(t *testing.T) {
 			}
 		}
 
-		assert.Equal(t, latestOffset, lastReadOffset, "Last consumed message offset should match adapter's latest offset")
-		assert.Equal(t, int64(4), lastReadOffset, "Last message should have offset 4")
-		assert.Equal(t, 5, messageCount, "Should have read exactly 5 messages")
+		assert.Equal(t, latestOffset, lastReadOffset, "last consumed message offset should match adapter's latest offset")
+		assert.Equal(t, int64(4), lastReadOffset, "last message should have offset 4")
+		assert.Equal(t, 5, messageCount, "should have read exactly 5 messages")
 	})
 
 	t.Run("demonstrate why subtraction is needed", func(t *testing.T) {
@@ -952,14 +1145,10 @@ func TestSaramaClientAdapter_OffsetBehavior(t *testing.T) {
 		select {
 		case msg := <-partitionConsumer2.Messages():
 			assert.Equal(t, adapterResult, msg.Offset)
-			t.Logf("Confirmed: Message exists at adapter result offset %d", adapterResult)
 		case <-time.After(500 * time.Millisecond):
 			t.Fatal("Expected to find message at adapter result offset")
 		}
 
-		t.Logf("High water mark (next write position): %d", highWaterMark)
-		t.Logf("Adapter result (latest existing message): %d", adapterResult)
-		t.Logf("Difference: %d", highWaterMark-adapterResult)
 		assert.Equal(t, int64(1), highWaterMark-adapterResult, "Adapter should return high water mark minus 1")
 	})
 }
@@ -982,11 +1171,11 @@ func createTopic(t *testing.T, topicName string, partitions int32) {
 
 	admin, err := sarama.NewClusterAdmin(brokers, config)
 	if err != nil {
-		t.Fatalf("Failed to create admin client: %v", err)
+		t.Fatalf("failed to create admin client: %v", err)
 	}
 	defer func() {
-		if err := admin.Close(); err != nil {
-			t.Logf("Failed to close admin client: %v", err)
+		if err = admin.Close(); err != nil {
+			t.Logf("failed to close admin client: %v", err)
 		}
 	}()
 

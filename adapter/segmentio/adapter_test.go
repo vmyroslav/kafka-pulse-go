@@ -3,6 +3,7 @@ package segmentio
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/segmentio/kafka-go"
 	"github.com/stretchr/testify/assert"
@@ -179,5 +180,89 @@ func TestMessage_BoundaryValues(t *testing.T) {
 				assert.Equal(t, tc.expectedInt32, msg.Partition())
 			})
 		}
+	})
+}
+
+// TestNewMessage_Comprehensive provides comprehensive coverage of NewMessage function
+func TestNewMessage_Comprehensive(t *testing.T) {
+	t.Parallel()
+
+	t.Run("NewMessage preserves all message fields", func(t *testing.T) {
+		t.Parallel()
+
+		testTime := time.Now()
+		kafkaMsg := kafka.Message{
+			Topic:     "preserve-test",
+			Partition: 5,
+			Offset:    12345,
+			Key:       []byte("test-key"),
+			Value:     []byte("test-value"),
+			Headers:   []kafka.Header{{Key: "header-key", Value: []byte("header-value")}},
+			Time:      testTime,
+		}
+
+		msg := NewMessage(kafkaMsg)
+		impl := msg.(*Message)
+
+		assert.Equal(t, kafkaMsg.Topic, impl.Message.Topic)
+		assert.Equal(t, kafkaMsg.Partition, impl.Message.Partition)
+		assert.Equal(t, kafkaMsg.Offset, impl.Message.Offset)
+		assert.Equal(t, kafkaMsg.Key, impl.Message.Key)
+		assert.Equal(t, kafkaMsg.Value, impl.Message.Value)
+		assert.Equal(t, kafkaMsg.Headers, impl.Message.Headers)
+		assert.Equal(t, kafkaMsg.Time, impl.Message.Time)
+	})
+
+	t.Run("NewMessage with complex headers", func(t *testing.T) {
+		t.Parallel()
+
+		headers := []kafka.Header{
+			{Key: "content-type", Value: []byte("application/json")},
+			{Key: "user-id", Value: []byte("12345")},
+			{Key: "empty-header", Value: []byte{}},
+			{Key: "nil-value", Value: nil},
+		}
+
+		kafkaMsg := kafka.Message{
+			Topic:     "headers-test",
+			Partition: 0,
+			Offset:    100,
+			Headers:   headers,
+		}
+
+		msg := NewMessage(kafkaMsg)
+		impl := msg.(*Message)
+
+		assert.Equal(t, headers, impl.Message.Headers)
+		assert.Len(t, impl.Message.Headers, 4)
+		assert.Equal(t, "content-type", impl.Message.Headers[0].Key)
+		assert.Equal(t, []byte("application/json"), impl.Message.Headers[0].Value)
+		assert.Nil(t, impl.Message.Headers[3].Value)
+	})
+
+	t.Run("NewMessage immutability test", func(t *testing.T) {
+		t.Parallel()
+
+		originalMsg := kafka.Message{
+			Topic:     "immutable-test",
+			Partition: 1,
+			Offset:    100,
+			Key:       []byte("original-key"),
+			Value:     []byte("original-value"),
+		}
+
+		msg := NewMessage(originalMsg)
+
+		originalMsg.Topic = "modified-topic"
+		originalMsg.Partition = 999
+		originalMsg.Offset = 888
+		originalMsg.Key = []byte("modified-key")
+
+		assert.Equal(t, "immutable-test", msg.Topic())
+		assert.Equal(t, int32(1), msg.Partition())
+		assert.Equal(t, int64(100), msg.Offset())
+
+		impl := msg.(*Message)
+		assert.Equal(t, []byte("original-key"), impl.Message.Key)
 	})
 }

@@ -48,6 +48,7 @@ tasks:
       - task: internal:clean:core
       - for: { var: ADAPTERS, as: ADAPTER_NAME }
         task: 'internal:clean:{{.ADAPTER_NAME}}'
+      - task: internal:test:coverage:clean
     cmds:
       - task: fmt
   update-deps:

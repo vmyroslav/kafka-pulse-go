@@ -48,6 +48,150 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// TestClientAdapter_GetLatestOffset tests the GetLatestOffset method
+func TestClientAdapter_GetLatestOffset(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	t.Run("GetLatestOffset with empty topic should return -1", func(t *testing.T) {
+		topic := fmt.Sprintf("empty-topic-%d", time.Now().UnixNano())
+		createTopic(t, topic, 1)
+
+		adapter := segmentioadapter.NewClientAdapter(brokers)
+
+		latestOffset, err := adapter.GetLatestOffset(ctx, topic, 0)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(-1), latestOffset, "empty topic should return -1 as latest offset")
+	})
+
+	t.Run("GetLatestOffset with single message", func(t *testing.T) {
+		topic := fmt.Sprintf("single-msg-topic-%d", time.Now().UnixNano())
+		createTopic(t, topic, 1)
+
+		adapter := segmentioadapter.NewClientAdapter(brokers)
+
+		writer := &kafka.Writer{
+			Addr:                   kafka.TCP(brokers[0]),
+			AllowAutoTopicCreation: false,
+			RequiredAcks:           kafka.RequireAll,
+		}
+		defer func(writer *kafka.Writer) {
+			_ = writer.Close()
+		}(writer)
+
+		err := writeMessagesWithRetry(ctx, writer, kafka.Message{
+			Topic:     topic,
+			Partition: 0,
+			Value:     []byte("test message"),
+		})
+		require.NoError(t, err)
+
+		assert.Eventually(t, func() bool {
+			latestOffset, err := adapter.GetLatestOffset(ctx, topic, 0)
+			if err != nil {
+				return false
+			}
+			return latestOffset == 0
+		}, 5*time.Second, 200*time.Millisecond, "should get latest offset 0 for single message")
+	})
+
+	t.Run("GetLatestOffset with multiple messages", func(t *testing.T) {
+		topic := fmt.Sprintf("multi-msg-topic-%d", time.Now().UnixNano())
+		createTopic(t, topic, 1)
+
+		adapter := segmentioadapter.NewClientAdapter(brokers)
+
+		writer := &kafka.Writer{
+			Addr:                   kafka.TCP(brokers[0]),
+			AllowAutoTopicCreation: false,
+			RequiredAcks:           kafka.RequireAll,
+		}
+		defer func(writer *kafka.Writer) {
+			_ = writer.Close()
+		}(writer)
+
+		// Wait for topic to be fully available for writing
+		messageCount := 5
+		var messages []kafka.Message
+		for i := 0; i < messageCount; i++ {
+			messages = append(messages, kafka.Message{
+				Topic:     topic,
+				Partition: 0,
+				Value:     []byte(fmt.Sprintf("message-%d", i)),
+			})
+		}
+
+		err := writeMessagesWithRetry(ctx, writer, messages...)
+		require.NoError(t, err)
+
+		assert.Eventually(t, func() bool {
+			latestOffset, err := adapter.GetLatestOffset(ctx, topic, 0)
+			if err != nil {
+				return false
+			}
+			return latestOffset == 4
+		}, 5*time.Second, 200*time.Millisecond, "should get latest offset 4 for 5 messages")
+	})
+
+	t.Run("GetLatestOffset with multiple partitions", func(t *testing.T) {
+		topic := fmt.Sprintf("multi-partition-topic-%d", time.Now().UnixNano())
+		numPartitions := 3
+		createTopic(t, topic, numPartitions)
+
+		adapter := segmentioadapter.NewClientAdapter(brokers)
+
+		writer := &kafka.Writer{
+			Addr:                   kafka.TCP(brokers[0]),
+			AllowAutoTopicCreation: false,
+			RequiredAcks:           kafka.RequireAll,
+		}
+		defer func(writer *kafka.Writer) {
+			_ = writer.Close()
+		}(writer)
+
+		// produce messages without specifying partitions
+		producedMessages := 10
+		var messages []kafka.Message
+		for i := 0; i < producedMessages; i++ {
+			messages = append(messages, kafka.Message{
+				Topic: topic,
+				Key:   []byte(fmt.Sprintf("key-%d", i)),
+				Value: []byte(fmt.Sprintf("message-%d", i)),
+			})
+		}
+
+		err := writeMessagesWithRetry(ctx, writer, messages...)
+		require.NoError(t, err)
+
+		// check which partitions received messages and verify GetLatestOffset works
+		partitionsWithMessages := 0
+		for partition := 0; partition < numPartitions; partition++ {
+			latestOffset, err := adapter.GetLatestOffset(ctx, topic, int32(partition))
+			require.NoError(t, err, "should get latest offset for partition %d", partition)
+
+			if latestOffset >= 0 {
+				partitionsWithMessages++
+			}
+		}
+
+		assert.Greater(t, partitionsWithMessages, 0, "at least one partition should have received messages")
+	})
+
+	t.Run("GetLatestOffset error handling for non-existent partition", func(t *testing.T) {
+		topic := fmt.Sprintf("error-test-topic-%d", time.Now().UnixNano())
+		createTopic(t, topic, 2) // Only 2 partitions (0, 1)
+
+		adapter := segmentioadapter.NewClientAdapter(brokers)
+
+		ctxWithTimeout, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+
+		_, err := adapter.GetLatestOffset(ctxWithTimeout, topic, 2)
+		assert.Error(t, err, "should return error for non-existent partition")
+	})
+}
+
 func TestClientAdapterIntegration_Implementation(t *testing.T) {
 	t.Parallel()
 	var (
@@ -86,10 +230,9 @@ func TestClientAdapterIntegration_Implementation(t *testing.T) {
 	err = controllerConn.CreateTopics(topicConfigs...)
 	require.NoError(t, err, "Failed to create topics")
 
-	// Wait for topic metadata to propagate across the cluster
 	adapter := segmentioadapter.NewClientAdapter(brokers)
 	assert.Eventually(t, func() bool {
-		_, err := adapter.GetLatestOffset(ctx, topicSingleMsg, 0)
+		_, err = adapter.GetLatestOffset(ctx, topicSingleMsg, 0)
 		return err == nil
 	}, 5*time.Second, 100*time.Millisecond, "topic metadata should propagate")
 
@@ -104,7 +247,7 @@ func TestClientAdapterIntegration_Implementation(t *testing.T) {
 	}(writer)
 
 	// produce 1 message to the single-message topic partition 0
-	err = writer.WriteMessages(ctx, kafka.Message{
+	err = writeMessagesWithRetry(ctx, writer, kafka.Message{
 		Topic:     topicSingleMsg,
 		Partition: 0,
 		Value:     []byte("test message"),
@@ -120,7 +263,7 @@ func TestClientAdapterIntegration_Implementation(t *testing.T) {
 			Value: []byte(fmt.Sprintf("message-%d", i)),
 		}
 	}
-	err = writer.WriteMessages(ctx, messages...)
+	err = writeMessagesWithRetry(ctx, writer, messages...)
 	require.NoError(t, err, "Failed to produce messages to topicMultiPart")
 
 	// wait for messages to be committed to Kafka by checking offsets
@@ -176,7 +319,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		}
 		defer writer.Close()
 
-		err = writer.WriteMessages(ctx, kafka.Message{
+		err = writeMessagesWithRetry(ctx, writer, kafka.Message{
 			Topic:     topic,
 			Partition: 0,
 			Value:     []byte("initial message"),
@@ -196,7 +339,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		}, 200*time.Millisecond, 20*time.Millisecond, "consumer should be healthy before new message")
 
 		// produce a new message to make the consumer "lag behind"
-		err = writer.WriteMessages(ctx, kafka.Message{
+		err = writeMessagesWithRetry(ctx, writer, kafka.Message{
 			Topic:     topic,
 			Partition: 0,
 			Value:     []byte("new message"),
@@ -274,7 +417,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		}()
 
 		// produce the first message for our consumer to process
-		err = writer.WriteMessages(ctx, kafka.Message{
+		err = writeMessagesWithRetry(ctx, writer, kafka.Message{
 			Topic:     topic,
 			Partition: 0,
 			Value:     []byte("first message"),
@@ -284,7 +427,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		// wait until the consumer has processed and tracked the first message
 		select {
 		case <-messageProcessed: // success
-		case err := <-consumerError:
+		case err = <-consumerError:
 			if err != nil {
 				t.Fatalf("consumer error: %v", err)
 			}
@@ -295,12 +438,15 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		// at this point, the consumer should still be healthy even after StuckTimeout (no new messages yet)
 		assert.Eventually(t, func() bool {
 			healthy, err := hc.Healthy(ctx)
-			return err == nil && healthy
+			if err != nil {
+				return false
+			}
+			return healthy
 		}, 200*time.Millisecond, 20*time.Millisecond, "consumer should still be healthy when no new messages")
 
 		// produce a new message
 		// the consumer is stuck and will NOT process this makes the consumer "lagging behind"
-		err = writer.WriteMessages(ctx, kafka.Message{
+		err = writeMessagesWithRetry(ctx, writer, kafka.Message{
 			Topic:     topic,
 			Partition: 0,
 			Value:     []byte("second message"),
@@ -328,7 +474,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		}
 		defer writer.Close()
 
-		err := writer.WriteMessages(ctx, kafka.Message{
+		err := writeMessagesWithRetry(ctx, writer, kafka.Message{
 			Topic:     topic,
 			Partition: 0,
 			Value:     []byte("message"),
@@ -377,7 +523,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 				Value:     []byte(fmt.Sprintf("message-p%d", partition)),
 			})
 		}
-		err = writer.WriteMessages(ctx, messages...)
+		err = writeMessagesWithRetry(ctx, writer, messages...)
 		require.NoError(t, err)
 
 		// track messages from all partitions
@@ -410,7 +556,9 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 			Balancer:               &kafka.LeastBytes{},
 			AllowAutoTopicCreation: true,
 		}
-		defer writer.Close()
+		defer func(writer *kafka.Writer) {
+			_ = writer.Close()
+		}(writer)
 
 		// produce initial messages to all partitions
 		var messages []kafka.Message
@@ -421,7 +569,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 				Value:     []byte(fmt.Sprintf("message-p%d", partition)),
 			})
 		}
-		err = writer.WriteMessages(ctx, messages...)
+		err = writeMessagesWithRetry(ctx, writer, messages...)
 		require.NoError(t, err)
 
 		// track messages from all partitions
@@ -440,7 +588,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		}, 200*time.Millisecond, 20*time.Millisecond, "all partitions should be healthy before new message")
 
 		// produce a new message to partition 1 only (making it lag behind)
-		err = writer.WriteMessages(ctx, kafka.Message{
+		err = writeMessagesWithRetry(ctx, writer, kafka.Message{
 			Topic:     topic,
 			Partition: 1,
 			Value:     []byte("new message"),
@@ -499,7 +647,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 			})
 		}
 
-		err = writer.WriteMessages(ctx, messages...)
+		err = writeMessagesWithRetry(ctx, writer, messages...)
 		require.NoError(t, err)
 
 		// track latest messages from all partitions (all caught up)
@@ -586,7 +734,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 				})
 			}
 		}
-		err = writer.WriteMessages(ctx, messages...)
+		err = writeMessagesWithRetry(ctx, writer, messages...)
 		require.NoError(t, err)
 
 		processedCount := 0
@@ -650,7 +798,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 		}(reader)
 
 		// produce first message
-		err = writer.WriteMessages(ctx, kafka.Message{
+		err = writeMessagesWithRetry(ctx, writer, kafka.Message{
 			Topic:     topic,
 			Partition: 0,
 			Value:     []byte("first message"),
@@ -675,7 +823,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 		}, 200*time.Millisecond, 20*time.Millisecond, "Consumer should be healthy after first message")
 
 		// produce second message (consumer will NOT process this)
-		err = writer.WriteMessages(ctx, kafka.Message{
+		err = writeMessagesWithRetry(ctx, writer, kafka.Message{
 			Topic:     topic,
 			Partition: 0,
 			Value:     []byte("second message - consumer stuck"),
@@ -717,7 +865,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 				})
 			}
 		}
-		err = writer.WriteMessages(ctx, messages...)
+		err = writeMessagesWithRetry(ctx, writer, messages...)
 		require.NoError(t, err)
 
 		// consumer tracks messages from both partitions
@@ -767,7 +915,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 				})
 			}
 		}
-		err = writer.WriteMessages(ctx, messages...)
+		err = writeMessagesWithRetry(ctx, writer, messages...)
 		require.NoError(t, err)
 
 		// check what the actual latest offsets are for each partition
@@ -824,7 +972,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 		}, 500*time.Millisecond, 25*time.Millisecond, "consumer should be healthy for remaining partition")
 
 		// produce new messages to the released partitions
-		err = writer.WriteMessages(ctx,
+		err = writeMessagesWithRetry(ctx, writer,
 			kafka.Message{
 				Topic:     topic,
 				Partition: 1,
@@ -887,7 +1035,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 				Value:     []byte(fmt.Sprintf("message-%d", i)),
 			})
 		}
-		err = writer.WriteMessages(ctx, messages...)
+		err = writeMessagesWithRetry(ctx, writer, messages...)
 		require.NoError(t, err)
 
 		// simulate slow consumer that only processes a few messages
@@ -926,15 +1074,17 @@ func createTopic(t *testing.T, topicName string, partitions int) {
 	if err != nil {
 		t.Fatalf("Failed to connect to Kafka: %v", err)
 	}
-	defer conn.Close()
+	defer func(conn *kafka.Conn) {
+		_ = conn.Close()
+	}(conn)
 
 	controller, err := conn.Controller()
 	if err != nil {
-		t.Fatalf("Failed to get controller: %v", err)
+		t.Fatalf("failed to get controller: %v", err)
 	}
 	controllerConn, err := kafka.Dial("tcp", fmt.Sprintf("%s:%d", controller.Host, controller.Port))
 	if err != nil {
-		t.Fatalf("Failed to connect to controller: %v", err)
+		t.Fatalf("failed to connect to controller: %v", err)
 	}
 	defer func(controllerConn *kafka.Conn) {
 		_ = controllerConn.Close()
@@ -950,29 +1100,86 @@ func createTopic(t *testing.T, topicName string, partitions int) {
 	if err != nil {
 		// check if it's already exists error, which is ok
 		if !strings.Contains(err.Error(), "already exists") {
-			t.Fatalf("Topic creation error for %s: %v", topicName, err)
+			t.Fatalf("topic creation error for %s: %v", topicName, err)
 		} else {
-			t.Logf("Topic %s already exists", topicName)
+			t.Logf("topic %s already exists", topicName)
 		}
 	}
 
-	// wait for topic metadata to propagate to all brokers by checking topic availability
+	// wait longer for topic metadata to propagate to all brokers
 	adapter := segmentioadapter.NewClientAdapter(brokers)
 	ctx := context.Background()
 
-	timeout := time.After(5 * time.Second)
-	ticker := time.NewTicker(100 * time.Millisecond)
+	timeout := time.After(30 * time.Second)
+	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-timeout:
-			t.Fatalf("Timeout: Topic %s not available", topicName)
+			t.Fatalf("timeout: topic %s not available after 30 seconds", topicName)
 		case <-ticker.C:
-			_, err = adapter.GetLatestOffset(ctx, topicName, 0)
-			if err == nil {
-				return
+			topicReady := true
+
+			// check all partitions exist
+			for p := 0; p < partitions; p++ {
+				_, err = adapter.GetLatestOffset(ctx, topicName, int32(p))
+				if err != nil {
+					topicReady = false
+					break
+				}
+			}
+
+			if topicReady {
+				connectionTestPassed := true
+				for p := 0; p < partitions; p++ {
+					conn, err := kafka.DialLeader(ctx, "tcp", brokers[0], topicName, p)
+					if err != nil {
+						connectionTestPassed = false
+						break
+					}
+					_ = conn.Close()
+				}
+
+				if connectionTestPassed {
+					t.Logf("topic %s is now available with %d partitions", topicName, partitions)
+					return
+				}
 			}
 		}
 	}
+}
+
+// writeMessagesWithRetry attempts to write messages with retry logic to handle timing issues
+func writeMessagesWithRetry(ctx context.Context, writer *kafka.Writer, messages ...kafka.Message) error {
+	var lastErr error
+	maxRetries := 10
+	baseDelay := 100 * time.Millisecond
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		err := writer.WriteMessages(ctx, messages...)
+		if err == nil {
+			return nil
+		}
+
+		if !strings.Contains(err.Error(), "Unknown Topic Or Partition") {
+			return err
+		}
+
+		lastErr = err
+
+		delay := baseDelay * time.Duration(1<<attempt)
+		if delay > 2*time.Second {
+			delay = 2 * time.Second
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+			// continue to next attempt
+		}
+	}
+
+	return lastErr
 }
