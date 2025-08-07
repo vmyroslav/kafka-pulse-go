@@ -1,4 +1,4 @@
-package sarama_test
+package sarama
 
 import (
 	"context"
@@ -16,7 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	kafkacontainer "github.com/testcontainers/testcontainers-go/modules/kafka"
-	saramaadapter "github.com/vmyroslav/kafka-pulse-go/adapter/sarama"
 	"github.com/vmyroslav/kafka-pulse-go/pulse"
 )
 
@@ -105,7 +104,7 @@ func TestClientAdapterIntegration_Implementation(t *testing.T) {
 		require.NoError(t, err, "Failed to produce message to topicMultiPart")
 	}
 
-	adapter := saramaadapter.NewClientAdapter(saramaClient)
+	adapter := NewClientAdapter(saramaClient)
 
 	assert.Eventually(t, func() bool {
 		latestOffset, err := adapter.GetLatestOffset(ctx, topicMultiPart, 0)
@@ -170,7 +169,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		}
 
 		// consumer tracks an older message (behind)
-		hc.Track(ctx, saramaadapter.NewMessage(&sarama.ConsumerMessage{
+		hc.Track(ctx, NewMessage(&sarama.ConsumerMessage{
 			Topic:     topic,
 			Partition: 0,
 			Offset:    1, // only processed second message
@@ -209,7 +208,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		}
 
 		// simulate a stuck consumer that only processed the first few messages
-		hc.Track(ctx, saramaadapter.NewMessage(&sarama.ConsumerMessage{
+		hc.Track(ctx, NewMessage(&sarama.ConsumerMessage{
 			Topic:     topic,
 			Partition: 0,
 			Offset:    2, // only processed 3 messages out of 50
@@ -240,7 +239,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		})
 		require.NoError(t, err, "failed to produce message to topic")
 
-		hc.Track(ctx, saramaadapter.NewMessage(&sarama.ConsumerMessage{
+		hc.Track(ctx, NewMessage(&sarama.ConsumerMessage{
 			Topic:     topic,
 			Partition: 0,
 			Offset:    0,
@@ -276,7 +275,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 
 		// track messages from all partitions
 		for partition := int32(0); partition < numPartitions; partition++ {
-			hc.Track(ctx, saramaadapter.NewMessage(&sarama.ConsumerMessage{
+			hc.Track(ctx, NewMessage(&sarama.ConsumerMessage{
 				Topic:     topic,
 				Partition: partition,
 				Offset:    0,
@@ -310,19 +309,19 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		}
 
 		// track caught-up messages from partitions 0 and 2 (no messages produced)
-		hc.Track(ctx, saramaadapter.NewMessage(&sarama.ConsumerMessage{
+		hc.Track(ctx, NewMessage(&sarama.ConsumerMessage{
 			Topic:     topic,
 			Partition: 0,
 			Offset:    -1, // no messages in this partition, caught up
 		}))
-		hc.Track(ctx, saramaadapter.NewMessage(&sarama.ConsumerMessage{
+		hc.Track(ctx, NewMessage(&sarama.ConsumerMessage{
 			Topic:     topic,
 			Partition: 2,
 			Offset:    -1, // no messages in this partition, caught up
 		}))
 
 		// track lagging message from partition 1 (only processed first few messages)
-		hc.Track(ctx, saramaadapter.NewMessage(&sarama.ConsumerMessage{
+		hc.Track(ctx, NewMessage(&sarama.ConsumerMessage{
 			Topic:     topic,
 			Partition: 1,
 			Offset:    2, // only processed 3 messages out of 20
@@ -437,7 +436,7 @@ func (h *realConsumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSess
 			}
 
 			// track each message with health checker
-			h.hc.Track(h.ctx, saramaadapter.NewMessage(message))
+			h.hc.Track(h.ctx, NewMessage(message))
 			h.t.Logf("Tracked message from partition %d offset %d", message.Partition, message.Offset)
 
 			session.MarkMessage(message, "")
@@ -483,13 +482,13 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSaramaAdapter(t *testing.T) 
 		}
 
 		// consumer tracks messages from both partitions
-		hc.Track(ctx, saramaadapter.NewMessage(&sarama.ConsumerMessage{
+		hc.Track(ctx, NewMessage(&sarama.ConsumerMessage{
 			Topic:     topic,
 			Partition: 0,
 			Offset:    2,
 		}))
 
-		hc.Track(ctx, saramaadapter.NewMessage(&sarama.ConsumerMessage{
+		hc.Track(ctx, NewMessage(&sarama.ConsumerMessage{
 			Topic:     topic,
 			Partition: 1,
 			Offset:    2,
@@ -526,7 +525,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSaramaAdapter(t *testing.T) 
 		}
 
 		// check what the actual latest offsets are for each partition
-		adapter := saramaadapter.NewClientAdapter(saramaClient)
+		adapter := NewClientAdapter(saramaClient)
 
 		// wait at least some partitions have messages
 		assert.Eventually(t, func() bool {
@@ -552,7 +551,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSaramaAdapter(t *testing.T) 
 			// only track partitions that have messages (offset >= 0)
 			if latestOffset >= 0 {
 				trackedPartitions = append(trackedPartitions, p)
-				hc.Track(ctx, saramaadapter.NewMessage(&sarama.ConsumerMessage{
+				hc.Track(ctx, NewMessage(&sarama.ConsumerMessage{
 					Topic:     topic,
 					Partition: p,
 					Offset:    latestOffset,
@@ -577,7 +576,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSaramaAdapter(t *testing.T) 
 			remainingPartition := trackedPartitions[0]
 			latestOffset, err := adapter.GetLatestOffset(ctx, topic, remainingPartition)
 			require.NoError(t, err)
-			hc.Track(ctx, saramaadapter.NewMessage(&sarama.ConsumerMessage{
+			hc.Track(ctx, NewMessage(&sarama.ConsumerMessage{
 				Topic:     topic,
 				Partition: remainingPartition,
 				Offset:    latestOffset,
@@ -613,7 +612,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSaramaAdapter(t *testing.T) 
 
 			latestOffset, err := adapter.GetLatestOffset(ctx, topic, remainingPartition)
 			require.NoError(t, err)
-			hc.Track(ctx, saramaadapter.NewMessage(&sarama.ConsumerMessage{
+			hc.Track(ctx, NewMessage(&sarama.ConsumerMessage{
 				Topic:     topic,
 				Partition: remainingPartition,
 				Offset:    latestOffset,
@@ -650,7 +649,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSaramaAdapter(t *testing.T) 
 
 		// simulate slow consumer that only processes a few messages
 		slowConsumerOffset := int64(5) // only processed 6 messages out of 100
-		hc.Track(ctx, saramaadapter.NewMessage(&sarama.ConsumerMessage{
+		hc.Track(ctx, NewMessage(&sarama.ConsumerMessage{
 			Topic:     topic,
 			Partition: 0,
 			Offset:    slowConsumerOffset,
@@ -664,7 +663,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSaramaAdapter(t *testing.T) 
 
 		// now simulate consumer catching up
 		catchUpOffset := int64(messageCount - 1) // caught up to last message
-		hc.Track(ctx, saramaadapter.NewMessage(&sarama.ConsumerMessage{
+		hc.Track(ctx, NewMessage(&sarama.ConsumerMessage{
 			Topic:     topic,
 			Partition: 0,
 			Offset:    catchUpOffset,
@@ -690,7 +689,7 @@ func TestHealthCheckerIntegration_Concurrent_WithSaramaAdapter(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			saramaadapter.NewClientAdapter(saramaClient),
+			NewClientAdapter(saramaClient),
 		)
 		require.NoError(t, err)
 
@@ -719,7 +718,7 @@ func TestHealthCheckerIntegration_Concurrent_WithSaramaAdapter(t *testing.T) {
 				partition := int32(goroutineID % int(numPartitions))
 
 				for msgIdx := 0; msgIdx < messagesPerGoroutine; msgIdx++ {
-					hc.Track(ctx, saramaadapter.NewMessage(&sarama.ConsumerMessage{
+					hc.Track(ctx, NewMessage(&sarama.ConsumerMessage{
 						Topic:     topic,
 						Partition: partition,
 						Offset:    int64(msgIdx),
@@ -758,7 +757,7 @@ func TestHealthCheckerIntegration_Concurrent_WithSaramaAdapter(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		hc.Track(ctx, saramaadapter.NewMessage(&sarama.ConsumerMessage{
+		hc.Track(ctx, NewMessage(&sarama.ConsumerMessage{
 			Topic:     topic,
 			Partition: 0,
 			Offset:    0,
@@ -811,7 +810,7 @@ func TestClientAdapter_GetLatestOffset_Integration(t *testing.T) {
 		topic := fmt.Sprintf("empty-topic-%d", time.Now().UnixNano())
 		createTopic(t, topic, 1)
 
-		adapter := saramaadapter.NewClientAdapter(saramaClient)
+		adapter := NewClientAdapter(saramaClient)
 
 		latestOffset, err := adapter.GetLatestOffset(ctx, topic, 0)
 		assert.NoError(t, err)
@@ -822,7 +821,7 @@ func TestClientAdapter_GetLatestOffset_Integration(t *testing.T) {
 		topic := fmt.Sprintf("single-msg-topic-%d", time.Now().UnixNano())
 		createTopic(t, topic, 1)
 
-		adapter := saramaadapter.NewClientAdapter(saramaClient)
+		adapter := NewClientAdapter(saramaClient)
 
 		producer, err := sarama.NewSyncProducer(brokers, saramaClient.Config())
 		require.NoError(t, err)
@@ -848,7 +847,7 @@ func TestClientAdapter_GetLatestOffset_Integration(t *testing.T) {
 		topic := fmt.Sprintf("multi-msg-topic-%d", time.Now().UnixNano())
 		createTopic(t, topic, 1)
 
-		adapter := saramaadapter.NewClientAdapter(saramaClient)
+		adapter := NewClientAdapter(saramaClient)
 
 		producer, err := sarama.NewSyncProducer(brokers, saramaClient.Config())
 		require.NoError(t, err)
@@ -879,7 +878,7 @@ func TestClientAdapter_GetLatestOffset_Integration(t *testing.T) {
 		numPartitions := int32(3)
 		createTopic(t, topic, numPartitions)
 
-		adapter := saramaadapter.NewClientAdapter(saramaClient)
+		adapter := NewClientAdapter(saramaClient)
 
 		producer, err := sarama.NewSyncProducer(brokers, saramaClient.Config())
 		require.NoError(t, err)
@@ -930,7 +929,7 @@ func TestClientAdapter_GetLatestOffset_Integration(t *testing.T) {
 		topic := fmt.Sprintf("error-test-topic-%d", time.Now().UnixNano())
 		createTopic(t, topic, 2) // Only 2 partitions
 
-		adapter := saramaadapter.NewClientAdapter(saramaClient)
+		adapter := NewClientAdapter(saramaClient)
 
 		_, err := adapter.GetLatestOffset(ctx, topic, 999)
 		assert.Error(t, err, "Should return error for non-existent partition")
@@ -939,7 +938,7 @@ func TestClientAdapter_GetLatestOffset_Integration(t *testing.T) {
 	t.Run("GetLatestOffset error handling for non-existent topic", func(t *testing.T) {
 		nonExistentTopic := fmt.Sprintf("definitely-non-existent-topic-with-special-chars-!@#$%%^&*()-%d", time.Now().UnixNano())
 
-		adapter := saramaadapter.NewClientAdapter(saramaClient)
+		adapter := NewClientAdapter(saramaClient)
 
 		_, err := adapter.GetLatestOffset(ctx, nonExistentTopic, 0)
 		if err == nil {
@@ -958,7 +957,7 @@ func TestClientAdapter_GetLatestOffset_Integration(t *testing.T) {
 		topic := fmt.Sprintf("watermark-consistency-topic-%d", time.Now().UnixNano())
 		createTopic(t, topic, 1)
 
-		adapter := saramaadapter.NewClientAdapter(saramaClient)
+		adapter := NewClientAdapter(saramaClient)
 
 		highWaterMark, err := saramaClient.GetOffset(topic, 0, sarama.OffsetNewest)
 		require.NoError(t, err)
@@ -1001,7 +1000,7 @@ func TestSaramaClientAdapter_OffsetBehavior(t *testing.T) {
 
 	createTopic(t, topic, 1)
 
-	adapter := saramaadapter.NewClientAdapter(saramaClient)
+	adapter := NewClientAdapter(saramaClient)
 
 	t.Run("empty topic should return -1", func(t *testing.T) {
 		// for an empty topic, high watermark is 0, so latest message offset should be -1
@@ -1157,7 +1156,7 @@ func createHealthChecker(t *testing.T) *pulse.HealthChecker {
 	t.Helper()
 	hc, err := pulse.NewHealthChecker(
 		pulse.Config{StuckTimeout: 100 * time.Millisecond},
-		saramaadapter.NewClientAdapter(saramaClient),
+		NewClientAdapter(saramaClient),
 	)
 	require.NoError(t, err)
 	return hc

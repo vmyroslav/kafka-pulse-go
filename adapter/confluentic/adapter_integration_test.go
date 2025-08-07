@@ -1,4 +1,4 @@
-package confluentic_test
+package confluentic
 
 import (
 	"context"
@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	kafkacontainer "github.com/testcontainers/testcontainers-go/modules/kafka"
-	confluenticadapter "github.com/vmyroslav/kafka-pulse-go/adapter/confluentic"
 	"github.com/vmyroslav/kafka-pulse-go/pulse"
 )
 
@@ -110,7 +109,7 @@ func TestClientAdapter_Implementation(t *testing.T) {
 		}
 		producer.Flush(5000)
 
-		adapter := confluenticadapter.NewClientAdapter(configMap)
+		adapter := NewClientAdapter(configMap)
 
 		t.Run("success on partition with single message", func(t *testing.T) {
 			latestOffset, err := adapter.GetLatestOffset(ctx, topicSingleMsg, 0)
@@ -146,7 +145,7 @@ func TestClientAdapter_Implementation(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			confluenticadapter.NewClientAdapter(configMap),
+			NewClientAdapter(configMap),
 		)
 		require.NoError(t, err)
 
@@ -190,7 +189,7 @@ func TestClientAdapter_Implementation(t *testing.T) {
 				partition := goroutineID % numPartitions
 
 				for msgIdx := 0; msgIdx < messagesPerGoroutine; msgIdx++ {
-					hc.Track(ctx, confluenticadapter.NewMessage(&kafka.Message{
+					hc.Track(ctx, NewMessage(&kafka.Message{
 						TopicPartition: kafka.TopicPartition{
 							Topic:     &topic,
 							Partition: int32(partition),
@@ -219,7 +218,7 @@ func TestClientAdapter_Implementation(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			confluenticadapter.NewClientAdapter(configMap),
+			NewClientAdapter(configMap),
 		)
 		require.NoError(t, err)
 
@@ -250,7 +249,7 @@ func TestClientAdapter_Implementation(t *testing.T) {
 		require.NoError(t, err)
 		producer.Flush(1000)
 
-		hc.Track(ctx, confluenticadapter.NewMessage(&kafka.Message{
+		hc.Track(ctx, NewMessage(&kafka.Message{
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 0, Offset: 0},
 		}))
 
@@ -295,7 +294,7 @@ func TestClientAdapter_Implementation(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			confluenticadapter.NewClientAdapter(configMap),
+			NewClientAdapter(configMap),
 		)
 		require.NoError(t, err)
 
@@ -331,7 +330,7 @@ func TestClientAdapter_Implementation(t *testing.T) {
 
 		// simulate slow consumer that only processes a few messages
 		slowConsumerOffset := int64(5) // only processed 6 messages out of 100
-		hc.Track(ctx, confluenticadapter.NewMessage(&kafka.Message{
+		hc.Track(ctx, NewMessage(&kafka.Message{
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 0, Offset: kafka.Offset(slowConsumerOffset)},
 		}))
 
@@ -343,7 +342,7 @@ func TestClientAdapter_Implementation(t *testing.T) {
 
 		// now simulate consumer catching up
 		catchUpOffset := int64(messageCount - 1) // caught up to last message
-		hc.Track(ctx, confluenticadapter.NewMessage(&kafka.Message{
+		hc.Track(ctx, NewMessage(&kafka.Message{
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 0, Offset: kafka.Offset(catchUpOffset)},
 		}))
 
@@ -358,7 +357,7 @@ func TestClientAdapter_Implementation(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			confluenticadapter.NewClientAdapter(configMap),
+			NewClientAdapter(configMap),
 		)
 		require.NoError(t, err)
 
@@ -389,7 +388,7 @@ func TestClientAdapter_Implementation(t *testing.T) {
 		require.NoError(t, err)
 		producer.Flush(1000)
 
-		hc.Track(ctx, confluenticadapter.NewMessage(&kafka.Message{
+		hc.Track(ctx, NewMessage(&kafka.Message{
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 0, Offset: 0},
 		}))
 
@@ -420,7 +419,7 @@ func TestClientAdapter_Implementation(t *testing.T) {
 		}, 3*time.Second, 100*time.Millisecond, "consumer should be unhealthy when stuck after idle period")
 
 		// consumer processes the new message
-		hc.Track(ctx, confluenticadapter.NewMessage(&kafka.Message{
+		hc.Track(ctx, NewMessage(&kafka.Message{
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 0, Offset: 1},
 		}))
 
@@ -438,7 +437,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 
 	t.Run("should be unhealthy when stale and lagging behind", func(t *testing.T) {
 		topic := "confluentic-stuck-topic"
-		brokerClient := confluenticadapter.NewClientAdapter(configMap)
+		brokerClient := NewClientAdapter(configMap)
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
@@ -472,7 +471,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		require.NoError(t, err)
 		producer.Flush(1000)
 
-		hc.Track(ctx, confluenticadapter.NewMessage(&kafka.Message{
+		hc.Track(ctx, NewMessage(&kafka.Message{
 			TopicPartition: kafka.TopicPartition{
 				Topic:     &topic,
 				Partition: 0,
@@ -508,7 +507,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			confluenticadapter.NewClientAdapter(configMap),
+			NewClientAdapter(configMap),
 		)
 		require.NoError(t, err)
 
@@ -552,7 +551,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 			require.NoError(t, err, "failed to read message from consumer")
 
 			// use the health monitor inside the consumer loop
-			hc.Track(ctx, confluenticadapter.NewMessage(msg))
+			hc.Track(ctx, NewMessage(msg))
 
 			messageProcessed <- struct{}{}
 
@@ -598,7 +597,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 
 	t.Run("should be healthy when idle but caught up", func(t *testing.T) {
 		topic := "confluentic-idle-topic"
-		hc, _ := pulse.NewHealthChecker(pulse.Config{StuckTimeout: 200 * time.Millisecond}, confluenticadapter.NewClientAdapter(configMap))
+		hc, _ := pulse.NewHealthChecker(pulse.Config{StuckTimeout: 200 * time.Millisecond}, NewClientAdapter(configMap))
 
 		adminClient, err := kafka.NewAdminClient(configMap)
 		require.NoError(t, err)
@@ -626,7 +625,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		require.NoError(t, err)
 		producer.Flush(1000)
 
-		hc.Track(ctx, confluenticadapter.NewMessage(&kafka.Message{
+		hc.Track(ctx, NewMessage(&kafka.Message{
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 0, Offset: 0},
 		}))
 
@@ -642,7 +641,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		numPartitions := 3
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			confluenticadapter.NewClientAdapter(configMap),
+			NewClientAdapter(configMap),
 		)
 		require.NoError(t, err)
 
@@ -677,7 +676,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 
 		// track messages from all partitions
 		for partition := 0; partition < numPartitions; partition++ {
-			hc.Track(ctx, confluenticadapter.NewMessage(&kafka.Message{
+			hc.Track(ctx, NewMessage(&kafka.Message{
 				TopicPartition: kafka.TopicPartition{
 					Topic:     &topic,
 					Partition: int32(partition),
@@ -696,7 +695,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		numPartitions := 3
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			confluenticadapter.NewClientAdapter(configMap),
+			NewClientAdapter(configMap),
 		)
 		require.NoError(t, err)
 
@@ -731,7 +730,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 
 		// track messages from all partitions
 		for partition := 0; partition < numPartitions; partition++ {
-			hc.Track(ctx, confluenticadapter.NewMessage(&kafka.Message{
+			hc.Track(ctx, NewMessage(&kafka.Message{
 				TopicPartition: kafka.TopicPartition{
 					Topic:     &topic,
 					Partition: int32(partition),
@@ -765,7 +764,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		topic := "confluentic-multi-partition-mixed-topic"
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			confluenticadapter.NewClientAdapter(configMap),
+			NewClientAdapter(configMap),
 		)
 		require.NoError(t, err)
 
@@ -816,13 +815,13 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		producer.Flush(1000)
 
 		// track latest messages from all partitions (all caught up)
-		hc.Track(ctx, confluenticadapter.NewMessage(&kafka.Message{
+		hc.Track(ctx, NewMessage(&kafka.Message{
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 0, Offset: 0},
 		}))
-		hc.Track(ctx, confluenticadapter.NewMessage(&kafka.Message{
+		hc.Track(ctx, NewMessage(&kafka.Message{
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 1, Offset: 2},
 		}))
-		hc.Track(ctx, confluenticadapter.NewMessage(&kafka.Message{
+		hc.Track(ctx, NewMessage(&kafka.Message{
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 2, Offset: 1},
 		}))
 
@@ -832,7 +831,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		assert.True(t, healthy)
 
 		// now track an older message from partition 1, making it lag
-		hc.Track(ctx, confluenticadapter.NewMessage(&kafka.Message{
+		hc.Track(ctx, NewMessage(&kafka.Message{
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 1, Offset: 0},
 		}))
 
@@ -856,7 +855,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithConfluentAdapter(t *testing.
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 500 * time.Millisecond},
-			confluenticadapter.NewClientAdapter(configMap),
+			NewClientAdapter(configMap),
 		)
 		require.NoError(t, err)
 
@@ -925,7 +924,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithConfluentAdapter(t *testing.
 					}
 
 					// track message with health checker\
-					hc.Track(ctx, confluenticadapter.NewMessage(msg))
+					hc.Track(ctx, NewMessage(msg))
 
 					_, err = consumer.CommitMessage(msg)
 					require.NoError(t, err, "failed to commit message")
@@ -957,7 +956,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithConfluentAdapter(t *testing.
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			confluenticadapter.NewClientAdapter(configMap),
+			NewClientAdapter(configMap),
 		)
 		require.NoError(t, err)
 
@@ -1010,7 +1009,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithConfluentAdapter(t *testing.
 			msg, err := consumer.ReadMessage(5000 * time.Millisecond)
 			require.NoError(t, err, "failed to read first message")
 
-			hc.Track(ctx, confluenticadapter.NewMessage(msg))
+			hc.Track(ctx, NewMessage(msg))
 			close(firstMessageProcessed)
 
 			// consumer now stops processing
@@ -1049,7 +1048,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithConfluentAdapter(t *testing.
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			confluenticadapter.NewClientAdapter(configMap),
+			NewClientAdapter(configMap),
 		)
 		require.NoError(t, err)
 
@@ -1084,11 +1083,11 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithConfluentAdapter(t *testing.
 		producer.Flush(1000)
 
 		// consumer tracks messages from both partitions
-		hc.Track(ctx, confluenticadapter.NewMessage(&kafka.Message{
+		hc.Track(ctx, NewMessage(&kafka.Message{
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 0, Offset: 2},
 		}))
 
-		hc.Track(ctx, confluenticadapter.NewMessage(&kafka.Message{
+		hc.Track(ctx, NewMessage(&kafka.Message{
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 1, Offset: 2},
 		}))
 
@@ -1103,7 +1102,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithConfluentAdapter(t *testing.
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			confluenticadapter.NewClientAdapter(configMap),
+			NewClientAdapter(configMap),
 		)
 		require.NoError(t, err)
 
@@ -1140,13 +1139,13 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithConfluentAdapter(t *testing.
 		producer.Flush(1000)
 
 		// simulate consumer processing messages from multiple partitions (before rebalance)
-		hc.Track(ctx, confluenticadapter.NewMessage(&kafka.Message{
+		hc.Track(ctx, NewMessage(&kafka.Message{
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 0, Offset: 1},
 		}))
-		hc.Track(ctx, confluenticadapter.NewMessage(&kafka.Message{
+		hc.Track(ctx, NewMessage(&kafka.Message{
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 1, Offset: 1},
 		}))
-		hc.Track(ctx, confluenticadapter.NewMessage(&kafka.Message{
+		hc.Track(ctx, NewMessage(&kafka.Message{
 			TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: 2, Offset: 1},
 		}))
 

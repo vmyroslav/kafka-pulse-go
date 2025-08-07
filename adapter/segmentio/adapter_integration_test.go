@@ -1,4 +1,4 @@
-package segmentio_test
+package segmentio
 
 import (
 	"context"
@@ -15,7 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	kafkacontainer "github.com/testcontainers/testcontainers-go/modules/kafka"
-	segmentioadapter "github.com/vmyroslav/kafka-pulse-go/adapter/segmentio"
 	"github.com/vmyroslav/kafka-pulse-go/pulse"
 )
 
@@ -58,7 +57,7 @@ func TestClientAdapter_GetLatestOffset(t *testing.T) {
 		topic := fmt.Sprintf("empty-topic-%d", time.Now().UnixNano())
 		createTopic(t, topic, 1)
 
-		adapter := segmentioadapter.NewClientAdapter(brokers)
+		adapter := NewClientAdapter(brokers)
 
 		latestOffset, err := adapter.GetLatestOffset(ctx, topic, 0)
 		assert.NoError(t, err)
@@ -69,7 +68,7 @@ func TestClientAdapter_GetLatestOffset(t *testing.T) {
 		topic := fmt.Sprintf("single-msg-topic-%d", time.Now().UnixNano())
 		createTopic(t, topic, 1)
 
-		adapter := segmentioadapter.NewClientAdapter(brokers)
+		adapter := NewClientAdapter(brokers)
 
 		writer := &kafka.Writer{
 			Addr:                   kafka.TCP(brokers[0]),
@@ -100,7 +99,7 @@ func TestClientAdapter_GetLatestOffset(t *testing.T) {
 		topic := fmt.Sprintf("multi-msg-topic-%d", time.Now().UnixNano())
 		createTopic(t, topic, 1)
 
-		adapter := segmentioadapter.NewClientAdapter(brokers)
+		adapter := NewClientAdapter(brokers)
 
 		writer := &kafka.Writer{
 			Addr:                   kafka.TCP(brokers[0]),
@@ -139,7 +138,7 @@ func TestClientAdapter_GetLatestOffset(t *testing.T) {
 		numPartitions := 3
 		createTopic(t, topic, numPartitions)
 
-		adapter := segmentioadapter.NewClientAdapter(brokers)
+		adapter := NewClientAdapter(brokers)
 
 		writer := &kafka.Writer{
 			Addr:                   kafka.TCP(brokers[0]),
@@ -182,7 +181,7 @@ func TestClientAdapter_GetLatestOffset(t *testing.T) {
 		topic := fmt.Sprintf("error-test-topic-%d", time.Now().UnixNano())
 		createTopic(t, topic, 2) // Only 2 partitions (0, 1)
 
-		adapter := segmentioadapter.NewClientAdapter(brokers)
+		adapter := NewClientAdapter(brokers)
 
 		ctxWithTimeout, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
@@ -230,7 +229,7 @@ func TestClientAdapterIntegration_Implementation(t *testing.T) {
 	err = controllerConn.CreateTopics(topicConfigs...)
 	require.NoError(t, err, "Failed to create topics")
 
-	adapter := segmentioadapter.NewClientAdapter(brokers)
+	adapter := NewClientAdapter(brokers)
 	assert.Eventually(t, func() bool {
 		_, err = adapter.GetLatestOffset(ctx, topicSingleMsg, 0)
 		return err == nil
@@ -304,7 +303,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		topic := "segmentio-stuck-topic"
 		createTopic(t, topic, 1)
 
-		brokerClient := segmentioadapter.NewClientAdapter(brokers)
+		brokerClient := NewClientAdapter(brokers)
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
@@ -326,7 +325,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		})
 		require.NoError(t, err, "failed to produce message to topic")
 
-		hc.Track(ctx, segmentioadapter.NewMessage(kafka.Message{
+		hc.Track(ctx, NewMessage(kafka.Message{
 			Topic:     topic,
 			Partition: 0,
 			Offset:    0,
@@ -362,7 +361,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			segmentioadapter.NewClientAdapter(brokers),
+			NewClientAdapter(brokers),
 		)
 		require.NoError(t, err)
 
@@ -403,7 +402,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 			}
 
 			// use the health monitor inside the consumer loop
-			hc.Track(ctx, segmentioadapter.NewMessage(msg))
+			hc.Track(ctx, NewMessage(msg))
 
 			// signal to the main test that the first message has been processed
 			select {
@@ -464,7 +463,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		topic := "segmentio-idle-topic"
 		createTopic(t, topic, 1)
 
-		hc, _ := pulse.NewHealthChecker(pulse.Config{StuckTimeout: 100 * time.Millisecond}, segmentioadapter.NewClientAdapter(brokers))
+		hc, _ := pulse.NewHealthChecker(pulse.Config{StuckTimeout: 100 * time.Millisecond}, NewClientAdapter(brokers))
 
 		// produce and track a message, consumer is now caught up
 		writer := &kafka.Writer{
@@ -481,7 +480,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		})
 		require.NoError(t, err, "failed to produce message to topic")
 
-		hc.Track(ctx, segmentioadapter.NewMessage(kafka.Message{
+		hc.Track(ctx, NewMessage(kafka.Message{
 			Topic:     topic,
 			Partition: 0,
 			Offset:    0,
@@ -501,7 +500,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			segmentioadapter.NewClientAdapter(brokers),
+			NewClientAdapter(brokers),
 		)
 		require.NoError(t, err)
 
@@ -528,7 +527,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 
 		// track messages from all partitions
 		for partition := 0; partition < numPartitions; partition++ {
-			hc.Track(ctx, segmentioadapter.NewMessage(kafka.Message{
+			hc.Track(ctx, NewMessage(kafka.Message{
 				Topic:     topic,
 				Partition: partition,
 				Offset:    0,
@@ -547,7 +546,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			segmentioadapter.NewClientAdapter(brokers),
+			NewClientAdapter(brokers),
 		)
 		require.NoError(t, err)
 
@@ -574,7 +573,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 
 		// track messages from all partitions
 		for partition := 0; partition < numPartitions; partition++ {
-			hc.Track(ctx, segmentioadapter.NewMessage(kafka.Message{
+			hc.Track(ctx, NewMessage(kafka.Message{
 				Topic:     topic,
 				Partition: partition,
 				Offset:    0,
@@ -608,7 +607,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			segmentioadapter.NewClientAdapter(brokers),
+			NewClientAdapter(brokers),
 		)
 		require.NoError(t, err)
 
@@ -651,17 +650,17 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		require.NoError(t, err)
 
 		// track latest messages from all partitions (all caught up)
-		hc.Track(ctx, segmentioadapter.NewMessage(kafka.Message{
+		hc.Track(ctx, NewMessage(kafka.Message{
 			Topic:     topic,
 			Partition: 0,
 			Offset:    0,
 		}))
-		hc.Track(ctx, segmentioadapter.NewMessage(kafka.Message{
+		hc.Track(ctx, NewMessage(kafka.Message{
 			Topic:     topic,
 			Partition: 1,
 			Offset:    2,
 		}))
-		hc.Track(ctx, segmentioadapter.NewMessage(kafka.Message{
+		hc.Track(ctx, NewMessage(kafka.Message{
 			Topic:     topic,
 			Partition: 2,
 			Offset:    1,
@@ -673,7 +672,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		assert.True(t, healthy)
 
 		// now track an older message from partition 1, making it lag
-		hc.Track(ctx, segmentioadapter.NewMessage(kafka.Message{
+		hc.Track(ctx, NewMessage(kafka.Message{
 			Topic:     topic,
 			Partition: 1,
 			Offset:    0,
@@ -697,7 +696,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			segmentioadapter.NewClientAdapter(brokers),
+			NewClientAdapter(brokers),
 		)
 		require.NoError(t, err)
 
@@ -752,7 +751,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 			}
 
 			// track each message with health checker
-			hc.Track(ctx, segmentioadapter.NewMessage(msg))
+			hc.Track(ctx, NewMessage(msg))
 			processedCount++
 		}
 
@@ -769,7 +768,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			segmentioadapter.NewClientAdapter(brokers),
+			NewClientAdapter(brokers),
 		)
 		require.NoError(t, err)
 
@@ -813,7 +812,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 		require.NoError(t, err, "Failed to read first message")
 
 		// track first message with health checker
-		hc.Track(ctx, segmentioadapter.NewMessage(msg))
+		hc.Track(ctx, NewMessage(msg))
 		t.Logf("Tracked first message at offset %d", msg.Offset)
 
 		// consumer should be healthy after processing first message
@@ -843,7 +842,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			segmentioadapter.NewClientAdapter(brokers),
+			NewClientAdapter(brokers),
 		)
 		require.NoError(t, err)
 
@@ -869,13 +868,13 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 		require.NoError(t, err)
 
 		// consumer tracks messages from both partitions
-		hc.Track(ctx, segmentioadapter.NewMessage(kafka.Message{
+		hc.Track(ctx, NewMessage(kafka.Message{
 			Topic:     topic,
 			Partition: 0,
 			Offset:    2,
 		}))
 
-		hc.Track(ctx, segmentioadapter.NewMessage(kafka.Message{
+		hc.Track(ctx, NewMessage(kafka.Message{
 			Topic:     topic,
 			Partition: 1,
 			Offset:    2,
@@ -893,7 +892,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			segmentioadapter.NewClientAdapter(brokers),
+			NewClientAdapter(brokers),
 		)
 		require.NoError(t, err)
 
@@ -919,7 +918,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 		require.NoError(t, err)
 
 		// check what the actual latest offsets are for each partition
-		adapter := segmentioadapter.NewClientAdapter(brokers)
+		adapter := NewClientAdapter(brokers)
 
 		// wait for messages to be committed by checking offsets
 		assert.Eventually(t, func() bool {
@@ -940,7 +939,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 			t.Logf("Partition %d latest offset: %d", p, latestOffset)
 
 			// track the latest message for each partition
-			hc.Track(ctx, segmentioadapter.NewMessage(kafka.Message{
+			hc.Track(ctx, NewMessage(kafka.Message{
 				Topic:     topic,
 				Partition: int(p),
 				Offset:    latestOffset,
@@ -959,7 +958,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 		// update partition 0 tracking to ensure it stays current
 		latestOffset0, err := adapter.GetLatestOffset(ctx, topic, 0)
 		require.NoError(t, err)
-		hc.Track(ctx, segmentioadapter.NewMessage(kafka.Message{
+		hc.Track(ctx, NewMessage(kafka.Message{
 			Topic:     topic,
 			Partition: 0,
 			Offset:    latestOffset0,
@@ -993,7 +992,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 			latestOffset0, err = adapter.GetLatestOffset(ctx, topic, 0)
 			return err == nil && latestOffset0 >= 0
 		}, 1*time.Second, 50*time.Millisecond, "messages should be committed to partition 0")
-		hc.Track(ctx, segmentioadapter.NewMessage(kafka.Message{
+		hc.Track(ctx, NewMessage(kafka.Message{
 			Topic:     topic,
 			Partition: 0,
 			Offset:    latestOffset0,
@@ -1014,7 +1013,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			segmentioadapter.NewClientAdapter(brokers),
+			NewClientAdapter(brokers),
 		)
 		require.NoError(t, err)
 
@@ -1040,7 +1039,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 
 		// simulate slow consumer that only processes a few messages
 		slowConsumerOffset := int64(5) // only processed 6 messages out of 100
-		hc.Track(ctx, segmentioadapter.NewMessage(kafka.Message{
+		hc.Track(ctx, NewMessage(kafka.Message{
 			Topic:     topic,
 			Partition: 0,
 			Offset:    slowConsumerOffset,
@@ -1054,7 +1053,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 
 		// now simulate consumer catching up
 		catchUpOffset := int64(messageCount - 1) // caught up to last message
-		hc.Track(ctx, segmentioadapter.NewMessage(kafka.Message{
+		hc.Track(ctx, NewMessage(kafka.Message{
 			Topic:     topic,
 			Partition: 0,
 			Offset:    catchUpOffset,
@@ -1107,7 +1106,7 @@ func createTopic(t *testing.T, topicName string, partitions int) {
 	}
 
 	// wait longer for topic metadata to propagate to all brokers
-	adapter := segmentioadapter.NewClientAdapter(brokers)
+	adapter := NewClientAdapter(brokers)
 	ctx := context.Background()
 
 	timeout := time.After(30 * time.Second)
