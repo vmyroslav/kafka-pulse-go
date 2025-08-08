@@ -6,11 +6,26 @@
 
 # kafka-pulse-go
 
-A Go library for monitoring Kafka consumer health and detecting stuck consumers. Based on techniques described in [PagerDuty's Kafka Health Checks](https://www.pagerduty.com/eng/kafka-health-checks/) article.
+`kafka-pulse-go` is a lightweight, dependency-free Go library designed to monitor the health of Kafka consumers. It helps you quickly detect if a consumer is stalled, stuck, or lagging significantly behind the topic log.
 
-## Core Library
+Based on techniques described in [PagerDuty's Kafka Health Checks](https://www.pagerduty.com/eng/kafka-health-checks/) article.
 
-The core library provides health monitoring functionality that distinguishes between stuck consumers (behind available messages) vs idle consumers (caught up with no new messages).
+The core logic is decoupled from any specific Kafka client library, with ready-to-use adapters provided for popular clients.
+
+## How It Works
+
+The health checker operates on a simple principle:
+
+1.  **Track:** Your consumer code calls `Track()` for every message it processes. The library records the message's offset and the current timestamp for that specific topic-partition.
+2.  **Check:** Periodically (e.g., in an HTTP health check endpoint), you call `Healthy()`.
+3.  **Verify:** To avoid false alarms for idle partitions (i.e., partitions with no new messages), the library performs a verification step. It queries the Kafka broker for the latest available offset on that topic-partition.
+4.  **Diagnose:**
+    * If the consumer's tracked offset is **less than** the broker's latest offset, the consumer is confirmed to be **stuck**. The health check fails.
+    * If the consumer's tracked offset is **equal to or greater than** the broker's latest offset, the consumer is simply **idle and caught up**. The health check passes.
+
+This mechanism reliably distinguishes between a healthy, idle consumer and a genuinely failing one.
+
+-----
 
 ### Installation
 

@@ -111,7 +111,7 @@ func main() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		time.Sleep(1 * time.Second) // Wait for initial messages to be produced
+		time.Sleep(1 * time.Second) // wait for initial messages to be produced
 
 		ticker := time.NewTicker(continuousMessageInterval)
 		defer ticker.Stop()
@@ -181,9 +181,7 @@ func main() {
 		"stuck_timeout", "10s")
 
 	logger.Info("📊 Health endpoints available:",
-		"health", "http://localhost:"+healthPort+"/health",
-		"readiness", "http://localhost:"+healthPort+"/health/ready",
-		"liveness", "http://localhost:"+healthPort+"/health/live")
+		"health", "http://localhost:"+healthPort+"/health")
 
 	logger.Info("🎛️  Control endpoints for stuck consumer demo:",
 		"pause", "curl -X POST http://localhost:"+healthPort+"/control/pause",
