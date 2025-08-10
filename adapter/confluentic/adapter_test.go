@@ -81,6 +81,68 @@ func TestMessage_Wrapper(t *testing.T) {
 	}
 }
 
+func TestClientAdapter_Constructors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("NewClientAdapter should handle nil config", func(t *testing.T) {
+		t.Parallel()
+
+		adapter, err := NewClientAdapter(nil)
+		assert.Error(t, err)
+		assert.Nil(t, adapter)
+		assert.Contains(t, err.Error(), "config cannot be nil")
+	})
+
+	t.Run("NewClientAdapter should create adapter with ownership", func(t *testing.T) {
+		t.Parallel()
+
+		mockCluster, err := kafka.NewMockCluster(1)
+		require.NoError(t, err)
+		defer mockCluster.Close()
+
+		cfgMap := &kafka.ConfigMap{
+			"bootstrap.servers": mockCluster.BootstrapServers(),
+		}
+
+		adapter, err := NewClientAdapter(cfgMap)
+		require.NoError(t, err)
+		require.NotNil(t, adapter)
+
+		assert.True(t, adapter.ownProducer)
+
+		err = adapter.Close()
+		assert.NoError(t, err)
+
+		err = adapter.Close()
+		assert.NoError(t, err)
+	})
+
+	t.Run("NewClientAdapterWithProducer should create adapter without ownership", func(t *testing.T) {
+		t.Parallel()
+
+		mockCluster, err := kafka.NewMockCluster(1)
+		require.NoError(t, err)
+		defer mockCluster.Close()
+
+		cfgMap := &kafka.ConfigMap{
+			"bootstrap.servers": mockCluster.BootstrapServers(),
+		}
+
+		producer, err := kafka.NewProducer(cfgMap)
+		require.NoError(t, err)
+
+		adapter := NewClientAdapterWithProducer(producer)
+		require.NotNil(t, adapter)
+
+		assert.False(t, adapter.ownProducer)
+
+		err = adapter.Close()
+		assert.NoError(t, err)
+
+		producer.Close()
+	})
+}
+
 func TestClientAdapter_Implementation(t *testing.T) {
 	t.Parallel()
 
@@ -114,10 +176,12 @@ func TestClientAdapter_Implementation(t *testing.T) {
 	p.Flush(500)
 	p.Close()
 
-	adapter := NewClientAdapter(configMap)
-
 	t.Run("success on partition with single message", func(t *testing.T) {
 		t.Parallel()
+
+		adapter, err := NewClientAdapter(configMap)
+		require.NoError(t, err)
+		defer adapter.Close()
 
 		latestOffset, err := adapter.GetLatestOffset(ctx, topicSingleMsg, 0)
 		assert.NoError(t, err)
@@ -126,6 +190,11 @@ func TestClientAdapter_Implementation(t *testing.T) {
 
 	t.Run("new test: success on partition with multiple messages", func(t *testing.T) {
 		t.Parallel()
+
+		adapter, err := NewClientAdapter(configMap)
+		require.NoError(t, err)
+		defer adapter.Close()
+
 		// after 5 messages (offsets 0-4), the high watermark is 5
 		// the latest offset should be 4
 		latestOffset, err := adapter.GetLatestOffset(ctx, topicMultiPart, 2)
@@ -136,12 +205,20 @@ func TestClientAdapter_Implementation(t *testing.T) {
 	t.Run("error on non-existent topic", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := adapter.GetLatestOffset(ctx, "non-existent-topic", 0)
+		adapter, err := NewClientAdapter(configMap)
+		require.NoError(t, err)
+		defer adapter.Close()
+
+		_, err = adapter.GetLatestOffset(ctx, "non-existent-topic", 0)
 		assert.Error(t, err)
 	})
 
 	t.Run("new test: error on non-existent partition", func(t *testing.T) {
 		t.Parallel()
+
+		adapter, err := NewClientAdapter(configMap)
+		require.NoError(t, err)
+		defer adapter.Close()
 
 		// topic exists but only has partition 0
 		_, err = adapter.GetLatestOffset(ctx, topicSingleMsg, 99)
@@ -167,7 +244,9 @@ func TestHealthChecker_WithClientAdapter(t *testing.T) {
 		err := mockCluster.CreateTopic(topic, 1, 1)
 		require.NoError(t, err)
 
-		brokerClient := NewClientAdapter(configMap)
+		brokerClient, err := NewClientAdapter(configMap)
+		require.NoError(t, err)
+		defer brokerClient.Close()
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
@@ -223,7 +302,12 @@ func TestHealthChecker_WithClientAdapter(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -299,7 +383,11 @@ func TestHealthChecker_WithClientAdapter(t *testing.T) {
 		err := mockCluster.CreateTopic(topic, 1, 1)
 		require.NoError(t, err)
 
-		hc, _ := pulse.NewHealthChecker(pulse.Config{StuckTimeout: 100 * time.Millisecond}, NewClientAdapter(configMap))
+		clientAdapter, err := NewClientAdapter(configMap)
+		require.NoError(t, err)
+		defer clientAdapter.Close()
+		hc, err := pulse.NewHealthChecker(pulse.Config{StuckTimeout: 100 * time.Millisecond}, clientAdapter)
+		require.NoError(t, err)
 
 		// produce and track a message, consumer is now caught up
 		p, err := kafka.NewProducer(configMap)
@@ -332,7 +420,12 @@ func TestHealthChecker_WithClientAdapter(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -372,7 +465,12 @@ func TestHealthChecker_WithClientAdapter(t *testing.T) {
 		numPartitions := 3
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -425,7 +523,12 @@ func TestHealthChecker_WithClientAdapter(t *testing.T) {
 		topic := "multi-partition-mixed-topic"
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -508,7 +611,12 @@ func TestHealthChecker_ConsumerGroup_WithConfluentAdapter(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -550,7 +658,12 @@ func TestHealthChecker_ConsumerGroup_WithConfluentAdapter(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -627,7 +740,12 @@ func TestHealthChecker_ConsumerGroup_WithConfluentAdapter(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -697,7 +815,12 @@ func TestHealthChecker_ConsumerGroup_WithConfluentAdapter(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -781,7 +904,12 @@ func TestHealthChecker_Consumers_WithConfluentAdapter(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -839,7 +967,12 @@ func TestHealthChecker_Consumers_WithConfluentAdapter(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -902,7 +1035,12 @@ func TestHealthChecker_Consumers_WithConfluentAdapter(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -975,7 +1113,12 @@ func TestHealthChecker_ErrorRecovery_WithConfluentAdapter(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(invalidConfigMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(invalidConfigMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -994,7 +1137,12 @@ func TestHealthChecker_ErrorRecovery_WithConfluentAdapter(t *testing.T) {
 		// now create a new health checker with valid config
 		validHC, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -1025,7 +1173,12 @@ func TestHealthChecker_ErrorRecovery_WithConfluentAdapter(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -1080,7 +1233,12 @@ func TestHealthChecker_ErrorRecovery_WithConfluentAdapter(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -1153,7 +1311,12 @@ func TestHealthChecker_HighThroughput_WithConfluentAdapter(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -1205,7 +1368,12 @@ func TestHealthChecker_HighThroughput_WithConfluentAdapter(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -1268,7 +1436,12 @@ func TestHealthChecker_HighThroughput_WithConfluentAdapter(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -1334,7 +1507,12 @@ func TestHealthChecker_HighThroughput_WithConfluentAdapter(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -1422,7 +1600,7 @@ func setupMockCluster(t *testing.T) (*kafka.MockCluster, *kafka.ConfigMap) {
 	bootstrapServers := mockCluster.BootstrapServers()
 	require.NotEmpty(t, bootstrapServers, "mock cluster did not provide bootstrap servers")
 
-	configMap := &kafka.ConfigMap{"bootstrap.servers": bootstrapServers}
+	cfgMap := &kafka.ConfigMap{"bootstrap.servers": bootstrapServers}
 
-	return mockCluster, configMap
+	return mockCluster, cfgMap
 }

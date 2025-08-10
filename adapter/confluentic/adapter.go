@@ -3,6 +3,8 @@ package confluentic
 import (
 	"context"
 	"fmt"
+	"io"
+	"sync"
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
@@ -11,7 +13,8 @@ import (
 
 var (
 	_ pulse.TrackableMessage = (*Message)(nil)
-	_ pulse.BrokerClient     = (*clientAdapter)(nil)
+	_ pulse.BrokerClient     = (*ClientAdapter)(nil)
+	_ io.Closer              = (*ClientAdapter)(nil)
 )
 
 // Message wraps a kafka.Message to implement the pulse.TrackableMessage interface
@@ -42,25 +45,61 @@ func (m *Message) Offset() int64 {
 	return int64(m.Message.TopicPartition.Offset)
 }
 
-// clientAdapter implements the pulse.BrokerClient interface.
-// It holds the Kafka configuration needed to create a temporary producer for querying partition watermarks.
-type clientAdapter struct {
-	config *kafka.ConfigMap
+// ClientAdapter implements the pulse.BrokerClient interface.
+// It holds a reusable producer for efficiently querying partition watermarks.
+type ClientAdapter struct {
+	producer    *kafka.Producer
+	ownProducer bool // indicates if the adapter owns the producer and should close it
+	mu          sync.RWMutex
 }
 
-// NewClientAdapter creates a new BrokerClient adapter.
+// NewClientAdapter creates a new ClientAdapter from a configuration.
 // It requires a kafka.ConfigMap containing at least the "bootstrap.servers".
-func NewClientAdapter(config *kafka.ConfigMap) pulse.BrokerClient {
-	return &clientAdapter{config: config}
+// The adapter creates and manages its own producer internally.
+// The returned adapter must be closed by the caller to prevent resource leaks.
+func NewClientAdapter(config *kafka.ConfigMap) (*ClientAdapter, error) {
+	if config == nil {
+		return nil, fmt.Errorf("config cannot be nil")
+	}
+
+	producer, err := kafka.NewProducer(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create producer: %w", err)
+	}
+
+	return &ClientAdapter{producer: producer, ownProducer: true}, nil
 }
 
-func (c *clientAdapter) GetLatestOffset(ctx context.Context, topic string, partition int32) (int64, error) {
-	// create a temporary producer
-	p, err := kafka.NewProducer(c.config)
-	if err != nil {
-		return 0, fmt.Errorf("failed to create temporary producer for watermark query: %w", err)
+// NewClientAdapterWithProducer creates a new adapter from an existing producer.
+// The adapter will NOT take ownership; the original creator is responsible for closing the producer.
+func NewClientAdapterWithProducer(producer *kafka.Producer) *ClientAdapter {
+	return &ClientAdapter{producer: producer, ownProducer: false}
+}
+
+// Close closes the underlying producer and releases resources.
+// It's safe to call Close multiple times.
+// Only closes the producer if this adapter owns it.
+func (c *ClientAdapter) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// only close the producer if this adapter owns it
+	if c.ownProducer && c.producer != nil {
+		c.producer.Close()
+		c.producer = nil
 	}
-	defer p.Close()
+
+	return nil
+}
+
+func (c *ClientAdapter) GetLatestOffset(ctx context.Context, topic string, partition int32) (int64, error) {
+	c.mu.RLock()
+	producer := c.producer
+	c.mu.RUnlock()
+
+	if producer == nil {
+		return 0, fmt.Errorf("producer is closed")
+	}
 
 	// use a timeout from the context
 	timeout, err := contextToTimeout(ctx)
@@ -68,7 +107,7 @@ func (c *clientAdapter) GetLatestOffset(ctx context.Context, topic string, parti
 		return 0, err
 	}
 
-	_, high, err := p.QueryWatermarkOffsets(topic, partition, timeout)
+	_, high, err := producer.QueryWatermarkOffsets(topic, partition, timeout)
 	if err != nil {
 		return 0, err
 	}

@@ -63,8 +63,13 @@ func main() {
 	defer consumer.Close()
 
 	// 2. Initialize Pulse Health Checker
-	// The adapter uses the ConfigMap to create temporary producers for fetching offsets.
-	pulseAdapter := pulseConfluent.NewClientAdapter(kafkaConfig)
+	// The adapter creates and manages its own producer for fetching offsets.
+	pulseAdapter, err := pulseConfluent.NewClientAdapter(kafkaConfig)
+	if err != nil {
+		logger.Error("Failed to create pulse adapter", "error", err)
+		os.Exit(1)
+	}
+	defer pulseAdapter.Close()
 	pulseConfig := pulse.Config{
 		Logger:             logger,
 		StuckTimeout:       30 * time.Second,
@@ -165,6 +170,7 @@ func main() {
 	time.Sleep(2 * time.Second)
 }
 ```
+
 -----
 
 ## Configuration

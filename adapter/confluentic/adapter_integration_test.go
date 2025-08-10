@@ -53,7 +53,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-func TestClientAdapter_Implementation(t *testing.T) {
+func TestClientAdapter_IntegrationImplementation(t *testing.T) {
 	t.Parallel()
 
 	t.Run("GetLatestOffset functionality", func(t *testing.T) {
@@ -109,7 +109,9 @@ func TestClientAdapter_Implementation(t *testing.T) {
 		}
 		producer.Flush(5000)
 
-		adapter := NewClientAdapter(configMap)
+		adapter, err := NewClientAdapter(configMap)
+		require.NoError(t, err)
+		defer adapter.Close()
 
 		t.Run("success on partition with single message", func(t *testing.T) {
 			latestOffset, err := adapter.GetLatestOffset(ctx, topicSingleMsg, 0)
@@ -145,7 +147,12 @@ func TestClientAdapter_Implementation(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -218,7 +225,12 @@ func TestClientAdapter_Implementation(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -294,7 +306,12 @@ func TestClientAdapter_Implementation(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -357,7 +374,12 @@ func TestClientAdapter_Implementation(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -437,7 +459,9 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 
 	t.Run("should be unhealthy when stale and lagging behind", func(t *testing.T) {
 		topic := "confluentic-stuck-topic"
-		brokerClient := NewClientAdapter(configMap)
+		brokerClient, err := NewClientAdapter(configMap)
+		require.NoError(t, err)
+		defer brokerClient.Close()
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
@@ -507,7 +531,12 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -597,7 +626,10 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 
 	t.Run("should be healthy when idle but caught up", func(t *testing.T) {
 		topic := "confluentic-idle-topic"
-		hc, _ := pulse.NewHealthChecker(pulse.Config{StuckTimeout: 200 * time.Millisecond}, NewClientAdapter(configMap))
+		clientAdapter, err := NewClientAdapter(configMap)
+		require.NoError(t, err)
+		defer clientAdapter.Close()
+		hc, _ := pulse.NewHealthChecker(pulse.Config{StuckTimeout: 200 * time.Millisecond}, clientAdapter)
 
 		adminClient, err := kafka.NewAdminClient(configMap)
 		require.NoError(t, err)
@@ -641,7 +673,12 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		numPartitions := 3
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -695,7 +732,12 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		numPartitions := 3
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -764,7 +806,12 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		topic := "confluentic-multi-partition-mixed-topic"
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -855,7 +902,12 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithConfluentAdapter(t *testing.
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 500 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -956,7 +1008,12 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithConfluentAdapter(t *testing.
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -1048,7 +1105,12 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithConfluentAdapter(t *testing.
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
@@ -1102,7 +1164,12 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithConfluentAdapter(t *testing.
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
-			NewClientAdapter(configMap),
+			func() pulse.BrokerClient {
+				clientAdapter, err := NewClientAdapter(configMap)
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = clientAdapter.Close() })
+				return clientAdapter
+			}(),
 		)
 		require.NoError(t, err)
 
