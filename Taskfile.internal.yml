@@ -5,8 +5,8 @@ silent: true
 vars:
   RELEASE_NOTES_FILE: release_notes.md
   
-  COMPONENTS: [core, sarama, confluentic, segmentio]
-  ADAPTERS: [sarama, confluentic, segmentio]
+  COMPONENTS: [core, sarama, confluent, segmentio]
+  ADAPTERS: [sarama, confluent, segmentio]
   
   CORE_PATH: "."
   CORE_TAG_PREFIX: ""
@@ -16,9 +16,9 @@ vars:
   SARAMA_TAG_PREFIX: "sarama/"
   SARAMA_CHANGELOG: "./adapter/sarama/CHANGELOG.md"
   
-  CONFLUENTIC_PATH: "./adapter/confluentic" 
-  CONFLUENTIC_TAG_PREFIX: "confluentic/"
-  CONFLUENTIC_CHANGELOG: "./adapter/confluentic/CHANGELOG.md"
+  CONFLUENTIC_PATH: "./adapter/confluent" 
+  CONFLUENTIC_TAG_PREFIX: "confluent/"
+  CONFLUENTIC_CHANGELOG: "./adapter/confluent/CHANGELOG.md"
   
   SEGMENTIO_PATH: "./adapter/segmentio"
   SEGMENTIO_TAG_PREFIX: "segmentio/"
@@ -36,14 +36,14 @@ tasks:
     cmds:
       - go test -timeout=60s -race {{if eq .COVERAGE "true"}}-covermode=atomic -coverprofile=profile.cov{{end}} ./...
 
-  test:confluentic:
-    desc: Run confluentic adapter tests (unit + integration)
+  test:confluent:
+    desc: Run confluent adapter tests (unit + integration)
     vars:
       COVERAGE: '{{.COVERAGE | default "false"}}'
     deps:
-      - task: test:confluentic:unit
+      - task: test:confluent:unit
         vars: { COVERAGE: "{{.COVERAGE}}" }
-      - task: test:confluentic:integration
+      - task: test:confluent:integration
         vars: { COVERAGE: "{{.COVERAGE}}" }
 
   test:sarama:
@@ -72,17 +72,17 @@ tasks:
       - for: { var: ADAPTERS, as: ADAPTER_NAME }
         task: 'test:{{.ADAPTER_NAME}}:integration'
 
-  test:confluentic:unit:
-    desc: Run confluentic unit tests (mock cluster)
-    dir: adapter/confluentic
+  test:confluent:unit:
+    desc: Run confluent unit tests (mock cluster)
+    dir: adapter/confluent
     vars:
       COVERAGE: '{{.COVERAGE | default "false"}}'
     cmds:
       - go test -timeout=60s -race {{if eq .COVERAGE "true"}}-covermode=atomic -coverprofile=profile.unit.cov{{end}} adapter_test.go adapter.go
 
-  test:confluentic:integration:
-    desc: Run confluentic integration tests (real containers)
-    dir: adapter/confluentic
+  test:confluent:integration:
+    desc: Run confluent integration tests (real containers)
+    dir: adapter/confluent
     vars:
       COVERAGE: '{{.COVERAGE | default "false"}}'
     cmds:
@@ -131,6 +131,7 @@ tasks:
   test:coverage:merge:
     desc: Merge all coverage files into a single profile.cov file
     internal: true
+    silent: true
     cmds:
       - |
         # Remove existing merged coverage file
@@ -145,7 +146,7 @@ tasks:
         fi
         
         # Add adapter coverage files
-        for adapter in confluentic sarama segmentio; do
+        for adapter in confluent sarama segmentio; do
           # Unit coverage
           if [ -f "adapter/$adapter/profile.unit.cov" ]; then
             tail -n +2 "adapter/$adapter/profile.unit.cov" >> profile.cov.merged
@@ -190,9 +191,9 @@ tasks:
       - go get -u ./...
       - go mod tidy
 
-  update-deps:confluentic:
-    desc: Update confluentic adapter dependencies
-    dir: adapter/confluentic
+  update-deps:confluent:
+    desc: Update confluent adapter dependencies
+    dir: adapter/confluent
     cmds:
       - go get -u ./...
       - go mod tidy
@@ -219,9 +220,9 @@ tasks:
     cmds:
       - go mod tidy
 
-  clean:confluentic:
-    desc: Clean and tidy confluentic adapter
-    dir: adapter/confluentic
+  clean:confluent:
+    desc: Clean and tidy confluent adapter
+    dir: adapter/confluent
     cmds:
       - go mod tidy
 

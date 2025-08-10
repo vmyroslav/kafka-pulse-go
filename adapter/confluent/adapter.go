@@ -1,4 +1,4 @@
-package confluentic
+package confluent
 
 import (
 	"context"

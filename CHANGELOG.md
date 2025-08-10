@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **Note**: Adapters have their own changelogs:
 - [Sarama Adapter](adapter/sarama/CHANGELOG.md)
-- [Confluent Kafka Go Adapter](adapter/confluentic/CHANGELOG.md)
+- [Confluent Kafka Go Adapter](adapter/confluent/CHANGELOG.md)
 - [SegmentIO Kafka Go Adapter](adapter/segmentio/CHANGELOG.md)
 
 ## [Unreleased]

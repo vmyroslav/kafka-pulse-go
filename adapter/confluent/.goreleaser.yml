@@ -1,6 +1,6 @@
 version: 2
 
-project_name: 'kafka-pulse-go-confluentic'
+project_name: 'kafka-pulse-go-confluent'
 
 builds:
   - skip: true
@@ -16,7 +16,7 @@ archives:
       - '**/*.go'
       - README.md
       - CHANGELOG.md
-      # exclude test files and dist
+      # Exclude test files and dist
       - '!**/*_test.go'
       - '!dist/**/*'
 
@@ -27,6 +27,8 @@ source:
   enabled: true
   name_template: '{{ .ProjectName }}-{{ .Version }}-full-source'
 
+dist: dist
+
 changelog:
   disable: true
 
@@ -35,14 +37,14 @@ release:
     owner: vmyroslav
     name: kafka-pulse-go
   
-  name_template: 'Confluent Adapter v{{ .Version }}'
+  name_template: 'Sarama Adapter v{{ .Version }}'
   
   header: |
-    This release contains updates to the Confluent Kafka Go client adapter.
+    This release contains updates to the Sarama adapter.
 
     ### Installation
     ```bash
-    go get github.com/vmyroslav/kafka-pulse-go/adapter/confluentic@{{ .Tag }}
+    go get github.com/vmyroslav/kafka-pulse-go/adapter/confluent@{{ .Tag }}
     ```
 
   footer: |

@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       component:
-        description: 'Component to release (core, sarama, confluentic, segmentio)'
+        description: 'Component to release (core, sarama, confluent, segmentio)'
         required: true
         type: choice
-        options: [core, sarama, confluentic, segmentio]
+        options: [core, sarama, confluent, segmentio]
       version:
         description: 'The semantic version for the new release (e.g., 1.2.3)'
         required: true

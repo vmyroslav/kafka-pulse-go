@@ -1,13 +1,13 @@
 # Confluent Adapter
 
-[![Godoc](https://pkg.go.dev/badge/github.com/vmyroslav/kafka-pulse-go/adapter/confluentic)](https://pkg.go.dev/github.com/vmyroslav/kafka-pulse-go/adapter/confluentic)
+[![Godoc](https://pkg.go.dev/badge/github.com/vmyroslav/kafka-pulse-go/adapter/confluent)](https://pkg.go.dev/github.com/vmyroslav/kafka-pulse-go/adapter/confluent)
 
 Kafka health monitoring adapter for [Confluent's Kafka Go client](https://github.com/confluentinc/confluent-kafka-go).
 
 ## Installation
 
 ```bash
-go get github.com/vmyroslav/kafka-pulse-go/adapter/confluentic
+go get github.com/vmyroslav/kafka-pulse-go/adapter/confluent
 ```
 
 ## Quick Start
@@ -33,7 +33,7 @@ import (
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/v2/kafka"
-	pulseConfluent "github.com/vmyroslav/kafka-pulse-go/adapter/confluentic"
+	pulseConfluent "github.com/vmyroslav/kafka-pulse-go/adapter/confluent"
 	"github.com/vmyroslav/kafka-pulse-go/pulse"
 )
 

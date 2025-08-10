@@ -1,4 +1,4 @@
-module github.com/vmyroslav/kafka-pulse-go/adapter/confluentic
+module github.com/vmyroslav/kafka-pulse-go/adapter/confluent
 
 go 1.24
 

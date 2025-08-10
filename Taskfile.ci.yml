@@ -8,7 +8,7 @@ tasks:
     summary: |
       Usage: task ci:changelog:validate COMPONENT=core
       Validates that the changelog has content in the unreleased section.
-      COMPONENT can be: core, sarama, confluentic, segmentio
+      COMPONENT can be: core, sarama, confluent, segmentio
     vars:
       COMPONENT: '{{.COMPONENT | default "core"}}'
       CHANGELOG_PATH: '{{if eq .COMPONENT "core"}}./CHANGELOG.md{{else}}./adapter/{{.COMPONENT}}/CHANGELOG.md{{end}}'
@@ -46,7 +46,7 @@ tasks:
     summary: |
       Usage: task ci:changelog:extract COMPONENT=core
       Extracts the unreleased section from changelog for release notes.
-      COMPONENT can be: core, sarama, confluentic, segmentio
+      COMPONENT can be: core, sarama, confluent, segmentio
     vars:
       COMPONENT: '{{.COMPONENT | default "core"}}'
       CHANGELOG_PATH: '{{if eq .COMPONENT "core"}}./CHANGELOG.md{{else}}./adapter/{{.COMPONENT}}/CHANGELOG.md{{end}}'
@@ -83,7 +83,7 @@ tasks:
     summary: |
       Usage: task ci:changelog:update COMPONENT=core VERSION=1.2.3
       Updates the changelog by replacing [Unreleased] with the new version.
-      COMPONENT can be: core, sarama, confluentic, segmentio
+      COMPONENT can be: core, sarama, confluent, segmentio
     vars:
       COMPONENT: '{{.COMPONENT | default "core"}}'
       VERSION: '{{.VERSION}}'
@@ -109,7 +109,7 @@ tasks:
     summary: |
       Usage: task ci:release:prepare COMPONENT=core VERSION=1.2.3
       Prepares a release by validating changelog, extracting notes, and updating changelog.
-      COMPONENT can be: core, sarama, confluentic, segmentio
+      COMPONENT can be: core, sarama, confluent, segmentio
     vars:
       COMPONENT: '{{.COMPONENT | default "core"}}'
       VERSION: '{{.VERSION}}'
@@ -136,7 +136,7 @@ tasks:
     summary: |
       Usage: task ci:release:tag COMPONENT=core VERSION=1.2.3
       Creates and pushes a git tag for the specified component and version.
-      COMPONENT can be: core, sarama, confluentic, segmentio
+      COMPONENT can be: core, sarama, confluent, segmentio
     vars:
       COMPONENT: '{{.COMPONENT | default "core"}}'
       VERSION: '{{.VERSION}}'

@@ -1,4 +1,4 @@
-package confluentic
+package confluent
 
 import (
 	"context"
@@ -59,8 +59,8 @@ func TestClientAdapter_IntegrationImplementation(t *testing.T) {
 	t.Run("GetLatestOffset functionality", func(t *testing.T) {
 		var (
 			ctx            = context.Background()
-			topicSingleMsg = "confluentic-topic-single-message"
-			topicMultiPart = "confluentic-topic-multi-partition"
+			topicSingleMsg = "confluent-topic-single-message"
+			topicMultiPart = "confluent-topic-multi-partition"
 		)
 
 		adminClient, err := kafka.NewAdminClient(configMap)
@@ -140,7 +140,7 @@ func TestClientAdapter_IntegrationImplementation(t *testing.T) {
 
 	t.Run("concurrent message tracking", func(t *testing.T) {
 		ctx := context.Background()
-		topic := "confluentic-concurrent-tracking-topic"
+		topic := "confluent-concurrent-tracking-topic"
 		numPartitions := 4
 		numGoroutines := 10
 		messagesPerGoroutine := 20
@@ -220,7 +220,7 @@ func TestClientAdapter_IntegrationImplementation(t *testing.T) {
 
 	t.Run("concurrent health checks", func(t *testing.T) {
 		ctx := context.Background()
-		topic := "confluentic-concurrent-health-topic"
+		topic := "confluent-concurrent-health-topic"
 		numHealthChecks := 50
 
 		hc, err := pulse.NewHealthChecker(
@@ -302,7 +302,7 @@ func TestClientAdapter_IntegrationImplementation(t *testing.T) {
 
 	t.Run("backpressure scenario - slow consumer should be detected as unhealthy", func(t *testing.T) {
 		ctx := context.Background()
-		topic := "confluentic-backpressure-topic"
+		topic := "confluent-backpressure-topic"
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
@@ -370,7 +370,7 @@ func TestClientAdapter_IntegrationImplementation(t *testing.T) {
 
 	t.Run("idle period followed by activity - should distinguish between stuck and idle", func(t *testing.T) {
 		ctx := context.Background()
-		topic := "confluentic-idle-activity-topic"
+		topic := "confluent-idle-activity-topic"
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
@@ -458,7 +458,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("should be unhealthy when stale and lagging behind", func(t *testing.T) {
-		topic := "confluentic-stuck-topic"
+		topic := "confluent-stuck-topic"
 		brokerClient, err := NewClientAdapter(configMap)
 		require.NoError(t, err)
 		defer brokerClient.Close()
@@ -625,7 +625,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 	})
 
 	t.Run("should be healthy when idle but caught up", func(t *testing.T) {
-		topic := "confluentic-idle-topic"
+		topic := "confluent-idle-topic"
 		clientAdapter, err := NewClientAdapter(configMap)
 		require.NoError(t, err)
 		defer clientAdapter.Close()
@@ -669,7 +669,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 	})
 
 	t.Run("multi-partition tracking - should be healthy when all partitions are caught up", func(t *testing.T) {
-		topic := "confluentic-multi-partition-healthy-topic"
+		topic := "confluent-multi-partition-healthy-topic"
 		numPartitions := 3
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
@@ -728,7 +728,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 	})
 
 	t.Run("multi-partition tracking - should be unhealthy when one partition is stuck", func(t *testing.T) {
-		topic := "confluentic-multi-partition-stuck-topic"
+		topic := "confluent-multi-partition-stuck-topic"
 		numPartitions := 3
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
@@ -803,7 +803,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 	})
 
 	t.Run("multi-partition tracking - should handle mixed partition states correctly", func(t *testing.T) {
-		topic := "confluentic-multi-partition-mixed-topic"
+		topic := "confluent-multi-partition-mixed-topic"
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
 			func() pulse.BrokerClient {
@@ -897,7 +897,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithConfluentAdapter(t *testing.
 	ctx := context.Background()
 
 	t.Run("consumer group processing messages with health monitoring", func(t *testing.T) {
-		topic := "confluentic-consumer-group-topic"
+		topic := "confluent-consumer-group-topic"
 		groupID := fmt.Sprintf("test-group-%d", time.Now().UnixNano())
 
 		hc, err := pulse.NewHealthChecker(
@@ -1003,7 +1003,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithConfluentAdapter(t *testing.
 	})
 
 	t.Run("consumer group with stuck consumer detection", func(t *testing.T) {
-		topic := "confluentic-stuck-consumer-topic"
+		topic := "confluent-stuck-consumer-topic"
 		groupID := fmt.Sprintf("stuck-test-group-%d", time.Now().UnixNano())
 
 		hc, err := pulse.NewHealthChecker(
@@ -1101,7 +1101,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithConfluentAdapter(t *testing.
 	})
 
 	t.Run("consumer should track multiple partitions independently", func(t *testing.T) {
-		topic := "confluentic-multi-partition-consumer-topic"
+		topic := "confluent-multi-partition-consumer-topic"
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
@@ -1160,7 +1160,7 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithConfluentAdapter(t *testing.
 	})
 
 	t.Run("consumer group rebalancing scenario - should handle partition reassignment", func(t *testing.T) {
-		topic := "confluentic-rebalance-topic"
+		topic := "confluent-rebalance-topic"
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 200 * time.Millisecond},
