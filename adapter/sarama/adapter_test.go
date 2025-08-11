@@ -386,7 +386,7 @@ func TestNewMessage(t *testing.T) {
 		assert.Equal(t, []byte{}, impl.ConsumerMessage.Value)
 	})
 
-	t.Run("NewMessage immutability test", func(t *testing.T) {
+	t.Run("NewMessage mutability test", func(t *testing.T) {
 		t.Parallel()
 
 		originalMsg := &sarama.ConsumerMessage{

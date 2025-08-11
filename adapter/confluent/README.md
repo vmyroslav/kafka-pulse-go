@@ -140,6 +140,16 @@ func main() {
 					if _, err := consumer.CommitMessage(e); err != nil {
 						logger.Error("Failed to commit message", "error", err)
 					}
+					
+				case kafka.RevokedPartitions:
+					// IMPORTANT: Release tracking for revoked partitions
+					// Without this, the health checker will continue monitoring
+					// partitions that are no longer owned by this consumer
+					logger.Info("Partitions revoked, releasing health tracking", "partitions", e.Partitions)
+					
+					for _, partition := range e.Partitions {
+						healthChecker.Release(ctx, *partition.Topic, partition.Partition)
+					}
 
 				case kafka.Error:
 					// Errors should be logged, and fatal errors may require exiting.
