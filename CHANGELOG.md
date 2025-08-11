@@ -13,10 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Code coverage reporting with codecov
+- Simplified release system with automated workflows
 
 ### Changed
+- Simplified CI/CD pipeline and release automation
 
 ### Fixed
+- Corrected release naming and descriptions across all GoReleaser configs
 
 ## [0.0.1] - 2025-08-05
 
