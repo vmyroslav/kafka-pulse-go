@@ -37,10 +37,10 @@ release:
     owner: vmyroslav
     name: kafka-pulse-go
   
-  name_template: 'Sarama Adapter v{{ .Version }}'
+  name_template: 'Confluent Adapter v{{ .Version }}'
   
   header: |
-    This release contains updates to the Sarama adapter.
+    This release contains updates to the Confluent adapter.
 
     ### Installation
     ```bash
