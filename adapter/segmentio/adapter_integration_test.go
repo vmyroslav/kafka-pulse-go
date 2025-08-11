@@ -57,7 +57,8 @@ func TestClientAdapter_GetLatestOffset(t *testing.T) {
 		topic := fmt.Sprintf("empty-topic-%d", time.Now().UnixNano())
 		createTopic(t, topic, 1)
 
-		adapter := NewClientAdapter(brokers)
+		adapter, err := NewClientAdapter(brokers)
+		require.NoError(t, err)
 
 		latestOffset, err := adapter.GetLatestOffset(ctx, topic, 0)
 		assert.NoError(t, err)
@@ -68,7 +69,8 @@ func TestClientAdapter_GetLatestOffset(t *testing.T) {
 		topic := fmt.Sprintf("single-msg-topic-%d", time.Now().UnixNano())
 		createTopic(t, topic, 1)
 
-		adapter := NewClientAdapter(brokers)
+		adapter, err := NewClientAdapter(brokers)
+		require.NoError(t, err)
 
 		writer := &kafka.Writer{
 			Addr:                   kafka.TCP(brokers[0]),
@@ -79,7 +81,7 @@ func TestClientAdapter_GetLatestOffset(t *testing.T) {
 			_ = writer.Close()
 		}(writer)
 
-		err := writeMessagesWithRetry(ctx, writer, kafka.Message{
+		err = writeMessagesWithRetry(ctx, writer, kafka.Message{
 			Topic:     topic,
 			Partition: 0,
 			Value:     []byte("test message"),
@@ -99,7 +101,8 @@ func TestClientAdapter_GetLatestOffset(t *testing.T) {
 		topic := fmt.Sprintf("multi-msg-topic-%d", time.Now().UnixNano())
 		createTopic(t, topic, 1)
 
-		adapter := NewClientAdapter(brokers)
+		adapter, err := NewClientAdapter(brokers)
+		require.NoError(t, err)
 
 		writer := &kafka.Writer{
 			Addr:                   kafka.TCP(brokers[0]),
@@ -121,7 +124,7 @@ func TestClientAdapter_GetLatestOffset(t *testing.T) {
 			})
 		}
 
-		err := writeMessagesWithRetry(ctx, writer, messages...)
+		err = writeMessagesWithRetry(ctx, writer, messages...)
 		require.NoError(t, err)
 
 		assert.Eventually(t, func() bool {
@@ -138,7 +141,8 @@ func TestClientAdapter_GetLatestOffset(t *testing.T) {
 		numPartitions := 3
 		createTopic(t, topic, numPartitions)
 
-		adapter := NewClientAdapter(brokers)
+		adapter, err := NewClientAdapter(brokers)
+		require.NoError(t, err)
 
 		writer := &kafka.Writer{
 			Addr:                   kafka.TCP(brokers[0]),
@@ -160,7 +164,7 @@ func TestClientAdapter_GetLatestOffset(t *testing.T) {
 			})
 		}
 
-		err := writeMessagesWithRetry(ctx, writer, messages...)
+		err = writeMessagesWithRetry(ctx, writer, messages...)
 		require.NoError(t, err)
 
 		// check which partitions received messages and verify GetLatestOffset works
@@ -181,12 +185,13 @@ func TestClientAdapter_GetLatestOffset(t *testing.T) {
 		topic := fmt.Sprintf("error-test-topic-%d", time.Now().UnixNano())
 		createTopic(t, topic, 2) // Only 2 partitions (0, 1)
 
-		adapter := NewClientAdapter(brokers)
+		adapter, err := NewClientAdapter(brokers)
+		require.NoError(t, err)
 
 		ctxWithTimeout, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
-		_, err := adapter.GetLatestOffset(ctxWithTimeout, topic, 2)
+		_, err = adapter.GetLatestOffset(ctxWithTimeout, topic, 2)
 		assert.Error(t, err, "should return error for non-existent partition")
 	})
 }
@@ -229,7 +234,8 @@ func TestClientAdapterIntegration_Implementation(t *testing.T) {
 	err = controllerConn.CreateTopics(topicConfigs...)
 	require.NoError(t, err, "Failed to create topics")
 
-	adapter := NewClientAdapter(brokers)
+	adapter, err := NewClientAdapter(brokers)
+	require.NoError(t, err)
 	assert.Eventually(t, func() bool {
 		_, err = adapter.GetLatestOffset(ctx, topicSingleMsg, 0)
 		return err == nil
@@ -303,7 +309,8 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		topic := "segmentio-stuck-topic"
 		createTopic(t, topic, 1)
 
-		brokerClient := NewClientAdapter(brokers)
+		brokerClient, err := NewClientAdapter(brokers)
+		require.NoError(t, err)
 
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
@@ -359,9 +366,12 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
+		brokerClient, err := NewClientAdapter(brokers)
+		require.NoError(t, err)
+
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(brokers),
+			brokerClient,
 		)
 		require.NoError(t, err)
 
@@ -463,7 +473,9 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		topic := "segmentio-idle-topic"
 		createTopic(t, topic, 1)
 
-		hc, _ := pulse.NewHealthChecker(pulse.Config{StuckTimeout: 100 * time.Millisecond}, NewClientAdapter(brokers))
+		brokerClient, err := NewClientAdapter(brokers)
+		require.NoError(t, err)
+		hc, _ := pulse.NewHealthChecker(pulse.Config{StuckTimeout: 100 * time.Millisecond}, brokerClient)
 
 		// produce and track a message, consumer is now caught up
 		writer := &kafka.Writer{
@@ -473,7 +485,7 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		}
 		defer writer.Close()
 
-		err := writeMessagesWithRetry(ctx, writer, kafka.Message{
+		err = writeMessagesWithRetry(ctx, writer, kafka.Message{
 			Topic:     topic,
 			Partition: 0,
 			Value:     []byte("message"),
@@ -498,9 +510,12 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		numPartitions := 3
 		createTopic(t, topic, numPartitions)
 
+		brokerClient, err := NewClientAdapter(brokers)
+		require.NoError(t, err)
+
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(brokers),
+			brokerClient,
 		)
 		require.NoError(t, err)
 
@@ -544,9 +559,12 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		numPartitions := 3
 		createTopic(t, topic, numPartitions)
 
+		brokerClient, err := NewClientAdapter(brokers)
+		require.NoError(t, err)
+
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(brokers),
+			brokerClient,
 		)
 		require.NoError(t, err)
 
@@ -605,9 +623,12 @@ func TestHealthCheckerIntegration_WithClientAdapter(t *testing.T) {
 		topic := "segmentio-multi-partition-mixed-topic"
 		createTopic(t, topic, 3)
 
+		brokerClient, err := NewClientAdapter(brokers)
+		require.NoError(t, err)
+
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(brokers),
+			brokerClient,
 		)
 		require.NoError(t, err)
 
@@ -694,9 +715,12 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 		topic := fmt.Sprintf("segmentio-real-consumer-group-%d", time.Now().UnixNano())
 		createTopic(t, topic, 2)
 
+		brokerClient, err := NewClientAdapter(brokers)
+		require.NoError(t, err)
+
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(brokers),
+			brokerClient,
 		)
 		require.NoError(t, err)
 
@@ -766,9 +790,12 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 		topic := fmt.Sprintf("segmentio-real-stuck-consumer-%d", time.Now().UnixNano())
 		createTopic(t, topic, 1)
 
+		brokerClient, err := NewClientAdapter(brokers)
+		require.NoError(t, err)
+
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(brokers),
+			brokerClient,
 		)
 		require.NoError(t, err)
 
@@ -840,9 +867,12 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 		topic := "segmentio-multi-partition-consumer-topic"
 		createTopic(t, topic, 2)
 
+		brokerClient, err := NewClientAdapter(brokers)
+		require.NoError(t, err)
+
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(brokers),
+			brokerClient,
 		)
 		require.NoError(t, err)
 
@@ -890,9 +920,12 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 		topic := "segmentio-rebalance-topic"
 		createTopic(t, topic, 3)
 
+		brokerClient, err := NewClientAdapter(brokers)
+		require.NoError(t, err)
+
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(brokers),
+			brokerClient,
 		)
 		require.NoError(t, err)
 
@@ -918,7 +951,8 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 		require.NoError(t, err)
 
 		// check what the actual latest offsets are for each partition
-		adapter := NewClientAdapter(brokers)
+		adapter, err := NewClientAdapter(brokers)
+		require.NoError(t, err)
 
 		// wait for messages to be committed by checking offsets
 		assert.Eventually(t, func() bool {
@@ -1011,9 +1045,12 @@ func TestHealthCheckerIntegration_ConsumerGroup_WithSegmentioAdapter(t *testing.
 		topic := "segmentio-backpressure-topic"
 		createTopic(t, topic, 1)
 
+		brokerClient, err := NewClientAdapter(brokers)
+		require.NoError(t, err)
+
 		hc, err := pulse.NewHealthChecker(
 			pulse.Config{StuckTimeout: 100 * time.Millisecond},
-			NewClientAdapter(brokers),
+			brokerClient,
 		)
 		require.NoError(t, err)
 
@@ -1106,7 +1143,8 @@ func createTopic(t *testing.T, topicName string, partitions int) {
 	}
 
 	// wait longer for topic metadata to propagate to all brokers
-	adapter := NewClientAdapter(brokers)
+	adapter, err := NewClientAdapter(brokers)
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	timeout := time.After(30 * time.Second)

@@ -2,6 +2,11 @@ package segmentio
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io"
+	"sync"
+	"time"
 
 	"github.com/segmentio/kafka-go"
 	"github.com/vmyroslav/kafka-pulse-go/pulse"
@@ -9,7 +14,8 @@ import (
 
 var (
 	_ pulse.TrackableMessage = (*Message)(nil)
-	_ pulse.BrokerClient     = (*clientAdapter)(nil)
+	_ pulse.BrokerClient     = (*ClientAdapter)(nil)
+	_ io.Closer              = (*ClientAdapter)(nil)
 )
 
 // Message wraps a kafka.Message to implement the pulse.TrackableMessage interface
@@ -37,24 +43,63 @@ func (m *Message) Offset() int64 {
 	return m.Message.Offset
 }
 
-// clientAdapter implements pulse.BrokerClient for the segmentio/kafka-go library
-type clientAdapter struct {
-	brokers []string
+// ClientAdapter implements pulse.BrokerClient for the segmentio/kafka-go library
+type ClientAdapter struct {
+	dialer    *kafka.Dialer
+	brokers   []string
+	ownDialer bool
+	mu        sync.RWMutex
 }
 
-// NewClientAdapter creates a new BrokerClient adapter.
+// NewClientAdapter creates a new BrokerClient adapter with an owned dialer.
 // It requires a list of bootstrap brokers to discover partition leaders.
-func NewClientAdapter(brokers []string) pulse.BrokerClient {
-	return &clientAdapter{
-		brokers: brokers,
+// The returned adapter implements io.Closer and must be closed to free resources.
+func NewClientAdapter(brokers []string) (*ClientAdapter, error) {
+	if brokers == nil {
+		return nil, errors.New("brokers cannot be nil")
 	}
+
+	return &ClientAdapter{
+		dialer: &kafka.Dialer{
+			Timeout:   10 * time.Second,
+			DualStack: true,
+		},
+		brokers:   brokers,
+		ownDialer: true,
+	}, nil
+}
+
+// NewClientAdapterWithDialer creates a new BrokerClient adapter with a provided dialer.
+// The caller retains ownership of the dialer and is responsible for its lifecycle.
+// The returned adapter does NOT implement io.Closer since it doesn't own the dialer.
+func NewClientAdapterWithDialer(dialer *kafka.Dialer, brokers []string) (*ClientAdapter, error) {
+	if dialer == nil {
+		return nil, errors.New("dialer cannot be nil")
+	}
+
+	if brokers == nil {
+		return nil, errors.New("brokers cannot be nil")
+	}
+
+	return &ClientAdapter{
+		dialer:    dialer,
+		brokers:   brokers,
+		ownDialer: false,
+	}, nil
 }
 
 // GetLatestOffset fetches the last available offset for a topic-partition.
-func (c *clientAdapter) GetLatestOffset(ctx context.Context, topic string, partition int32) (int64, error) {
-	// kafka.DialLeader establishes a connection to the leader broker for the given
-	// partition, using the first broker as a seed to discover the cluster topology
-	conn, err := kafka.DialLeader(ctx, "tcp", c.brokers[0], topic, int(partition))
+func (c *ClientAdapter) GetLatestOffset(ctx context.Context, topic string, partition int32) (int64, error) {
+	c.mu.RLock()
+	dialer := c.dialer
+	brokers := c.brokers
+	c.mu.RUnlock()
+
+	if len(brokers) == 0 {
+		return 0, fmt.Errorf("no brokers available")
+	}
+
+	conn, err := dialer.DialLeader(ctx, "tcp", brokers[0], topic, int(partition))
 	if err != nil {
 		return 0, err
 	}
@@ -62,7 +107,6 @@ func (c *clientAdapter) GetLatestOffset(ctx context.Context, topic string, parti
 		_ = conn.Close()
 	}(conn)
 
-	// ReadLastOffset returns the high watermark for the partition
 	lastOffset, err := conn.ReadLastOffset()
 	if err != nil {
 		return 0, err
@@ -70,4 +114,18 @@ func (c *clientAdapter) GetLatestOffset(ctx context.Context, topic string, parti
 
 	// the high watermark is the offset of the next message to be written
 	return lastOffset - 1, nil
+}
+
+// Close closes the dialer if it's owned by this adapter
+func (c *ClientAdapter) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.ownDialer && c.dialer != nil {
+		// kafka.Dialer doesn't have a Close method in segmentio/kafka-go
+		// the dialer just holds configuration, no persistent connections to close
+		c.dialer = nil
+	}
+
+	return nil
 }

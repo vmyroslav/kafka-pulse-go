@@ -53,7 +53,11 @@ func main() {
 
 	// 1. Initialize Pulse Health Checker
 	// The adapter only needs the list of broker addresses.
-	pulseAdapter := pulseSegmentio.NewClientAdapter(kafkaBrokers)
+	pulseAdapter, err := pulseSegmentio.NewClientAdapter(kafkaBrokers)
+	if err != nil {
+		logger.Error("Failed to create segmentio adapter", "error", err)
+		os.Exit(1)
+	}
 	pulseConfig := pulse.Config{
 		Logger:             logger,
 		StuckTimeout:       30 * time.Second,

@@ -1,6 +1,8 @@
 package segmentio
 
 import (
+	"context"
+	"io"
 	"math"
 	"testing"
 	"time"
@@ -110,12 +112,131 @@ func TestNewClientAdapter(t *testing.T) {
 	t.Parallel()
 
 	br := []string{"localhost:9092", "localhost:9093"}
-	adapter := NewClientAdapter(br)
+	adapter, err := NewClientAdapter(br)
+	assert.NoError(t, err)
 
-	assert.IsType(t, &clientAdapter{}, adapter)
+	assert.Equal(t, br, adapter.brokers)
+	assert.True(t, adapter.ownDialer)
+	assert.NotNil(t, adapter.dialer)
+}
 
-	impl := adapter.(*clientAdapter)
-	assert.Equal(t, br, impl.brokers)
+func TestClientAdapter_Constructors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("NewClientAdapter with nil brokers", func(t *testing.T) {
+		t.Parallel()
+		adapter, err := NewClientAdapter(nil)
+		assert.Error(t, err)
+		assert.Nil(t, adapter)
+	})
+
+	t.Run("NewClientAdapter with empty brokers", func(t *testing.T) {
+		t.Parallel()
+		adapter, err := NewClientAdapter([]string{})
+		assert.NoError(t, err)
+		assert.NotNil(t, adapter)
+		assert.Empty(t, adapter.brokers)
+		assert.True(t, adapter.ownDialer)
+		assert.NotNil(t, adapter.dialer)
+	})
+
+	t.Run("NewClientAdapterWithDialer with nil dialer returns error", func(t *testing.T) {
+		t.Parallel()
+		adapter, err := NewClientAdapterWithDialer(nil, []string{"localhost:9092"})
+		assert.Error(t, err)
+		assert.Nil(t, adapter)
+	})
+
+	t.Run("NewClientAdapterWithDialer with nil brokers", func(t *testing.T) {
+		t.Parallel()
+		dialer := &kafka.Dialer{Timeout: 5 * time.Second}
+
+		adapter, err := NewClientAdapterWithDialer(dialer, nil)
+		assert.Error(t, err)
+		assert.Nil(t, adapter)
+	})
+}
+
+func TestClientAdapter_Close(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Close() with owned dialer", func(t *testing.T) {
+		t.Parallel()
+		adapter, err := NewClientAdapter([]string{"localhost:9092"})
+		assert.NoError(t, err)
+
+		var closer io.Closer = adapter
+		assert.NotNil(t, closer)
+
+		assert.NotNil(t, adapter.dialer)
+		assert.True(t, adapter.ownDialer)
+
+		err = adapter.Close()
+		assert.NoError(t, err)
+
+		assert.Nil(t, adapter.dialer)
+	})
+
+	t.Run("Close() multiple times", func(t *testing.T) {
+		t.Parallel()
+		adapter, err := NewClientAdapter([]string{"localhost:9092"})
+		assert.NoError(t, err)
+
+		err = adapter.Close()
+		assert.NoError(t, err)
+		assert.Nil(t, adapter.dialer)
+
+		err = adapter.Close()
+		assert.NoError(t, err)
+		assert.Nil(t, adapter.dialer)
+	})
+}
+
+func TestClientAdapter_GetLatestOffset_NoBrokers(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty brokers list", func(t *testing.T) {
+		t.Parallel()
+		adapter, err := NewClientAdapter([]string{})
+		assert.NoError(t, err)
+
+		_, err = adapter.GetLatestOffset(context.Background(), "test-topic", 0)
+		assert.Error(t, err)
+	})
+
+	t.Run("nil brokers list", func(t *testing.T) {
+		t.Parallel()
+		_, err := NewClientAdapter(nil)
+		assert.Error(t, err)
+	})
+}
+
+func TestClientAdapter_ThreadSafety(t *testing.T) {
+	t.Parallel()
+
+	adapter, err := NewClientAdapter([]string{"localhost:9092"})
+	assert.NoError(t, err)
+
+	done := make(chan bool, 10)
+
+	for i := 0; i < 10; i++ {
+		go func() {
+			defer func() { done <- true }()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+
+			_, _ = adapter.GetLatestOffset(ctx, "test-topic", 0)
+		}()
+	}
+
+	// wait for all goroutines to complete
+	for i := 0; i < 10; i++ {
+		<-done
+	}
+
+	err = adapter.Close()
+	assert.NoError(t, err)
 }
 
 func TestMessage_BoundaryValues(t *testing.T) {
