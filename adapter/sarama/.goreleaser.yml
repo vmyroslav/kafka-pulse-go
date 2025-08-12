@@ -2,32 +2,36 @@ version: 2
 
 project_name: 'kafka-pulse-go-sarama'
 
+# Environment variables for version templating
+env:
+  - VERSION_CLEAN={{ if .Env.RELEASE_VERSION }}{{ .Env.RELEASE_VERSION }}{{ else }}{{ .Version }}{{ end }}
+
 builds:
   - skip: true
 
 archives:
   - id: source-archive
-    name_template: '{{ .ProjectName }}-{{ .Version }}-source'
+    name_template: '{{ .ProjectName }}-{{ .Env.VERSION_CLEAN }}-source'
     files:
-      - go.mod
-      - go.sum
-      - ../../LICENSE
-      - '*.go'
-      - '**/*.go'
-      - README.md
-      - CHANGELOG.md
+      - adapter/sarama/go.mod
+      - adapter/sarama/go.sum
+      - LICENSE
+      - 'adapter/sarama/*.go'
+      - 'adapter/sarama/**/*.go'
+      - adapter/sarama/README.md
+      - adapter/sarama/CHANGELOG.md
       # Exclude test files and dist
-      - '!**/*_test.go'
-      - '!dist/**/*'
+      - '!adapter/sarama/**/*_test.go'
+      - '!adapter/sarama/dist/**/*'
 
 checksum:
-  name_template: '{{ .ProjectName }}-{{ .Version }}-checksums.txt'
+  name_template: '{{ .ProjectName }}-{{ .Env.VERSION_CLEAN }}-checksums.txt'
 
 source:
   enabled: true
-  name_template: '{{ .ProjectName }}-{{ .Version }}-full-source'
+  name_template: '{{ .ProjectName }}-{{ .Env.VERSION_CLEAN }}-full-source'
 
-dist: dist
+dist: adapter/sarama/dist
 
 changelog:
   disable: true
@@ -37,7 +41,7 @@ release:
     owner: vmyroslav
     name: kafka-pulse-go
   
-  name_template: 'Sarama Adapter v{{ .Version }}'
+  name_template: 'Sarama Adapter v{{ .Env.VERSION_CLEAN }}'
   
   header: |
     This release contains updates to the Sarama adapter.

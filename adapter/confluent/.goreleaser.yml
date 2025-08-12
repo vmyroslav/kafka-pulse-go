@@ -2,32 +2,36 @@ version: 2
 
 project_name: 'kafka-pulse-go-confluent'
 
+# Environment variables for version templating  
+env:
+  - VERSION_CLEAN={{ if .Env.RELEASE_VERSION }}{{ .Env.RELEASE_VERSION }}{{ else }}{{ .Version }}{{ end }}
+
 builds:
   - skip: true
 
 archives:
   - id: source-archive
-    name_template: '{{ .ProjectName }}-{{ .Version }}-source'
+    name_template: '{{ .ProjectName }}-{{ .Env.VERSION_CLEAN }}-source'
     files:
-      - go.mod
-      - go.sum
-      - ../../LICENSE
-      - '*.go'
-      - '**/*.go'
-      - README.md
-      - CHANGELOG.md
+      - adapter/confluent/go.mod
+      - adapter/confluent/go.sum
+      - LICENSE
+      - 'adapter/confluent/*.go'
+      - 'adapter/confluent/**/*.go'
+      - adapter/confluent/README.md
+      - adapter/confluent/CHANGELOG.md
       # Exclude test files and dist
-      - '!**/*_test.go'
-      - '!dist/**/*'
+      - '!adapter/confluent/**/*_test.go'
+      - '!adapter/confluent/dist/**/*'
 
 checksum:
-  name_template: '{{ .ProjectName }}-{{ .Version }}-checksums.txt'
+  name_template: '{{ .ProjectName }}-{{ .Env.VERSION_CLEAN }}-checksums.txt'
 
 source:
   enabled: true
-  name_template: '{{ .ProjectName }}-{{ .Version }}-full-source'
+  name_template: '{{ .ProjectName }}-{{ .Env.VERSION_CLEAN }}-full-source'
 
-dist: dist
+dist: adapter/confluent/dist
 
 changelog:
   disable: true
@@ -37,7 +41,7 @@ release:
     owner: vmyroslav
     name: kafka-pulse-go
   
-  name_template: 'Confluent Adapter v{{ .Version }}'
+  name_template: 'Confluent Adapter v{{ .Env.VERSION_CLEAN }}'
   
   header: |
     This release contains updates to the Confluent adapter.

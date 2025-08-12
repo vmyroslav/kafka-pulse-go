@@ -57,18 +57,3 @@ tasks:
       - task: internal:update-deps:core
       - for: { var: ADAPTERS, as: ADAPTER_NAME }
         task: 'internal:update-deps:{{.ADAPTER_NAME}}'
-
-  release:test:
-    desc: Test release build locally with GoReleaser
-    summary: |
-      Usage: task release:test COMPONENT=core
-      Tests the release build locally using GoReleaser snapshot mode.
-      COMPONENT can be: core, sarama, confluent, segmentio
-    vars:
-      COMPONENT: '{{.COMPONENT | default "core"}}'
-      WORKDIR: '{{if eq .COMPONENT "core"}}.{{else}}adapter/{{.COMPONENT}}{{end}}'
-    cmds:
-      - |
-        echo "Testing release build for {{.COMPONENT}} from {{.WORKDIR}}"
-        export RELEASE_NOTES_CONTENT="Test release build for {{.COMPONENT}}"
-        cd "{{.WORKDIR}}" && goreleaser release --snapshot --clean

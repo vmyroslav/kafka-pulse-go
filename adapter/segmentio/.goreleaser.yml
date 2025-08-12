@@ -2,30 +2,36 @@ version: 2
 
 project_name: 'kafka-pulse-go-segmentio'
 
+# Environment variables for version templating
+env:
+  - VERSION_CLEAN={{ if .Env.RELEASE_VERSION }}{{ .Env.RELEASE_VERSION }}{{ else }}{{ .Version }}{{ end }}
+
 builds:
   - skip: true
 
 archives:
   - id: source-archive
-    name_template: '{{ .ProjectName }}-{{ .Version }}-source'
+    name_template: '{{ .ProjectName }}-{{ .Env.VERSION_CLEAN }}-source'
     files:
-      - go.mod
-      - go.sum
-      - ../../LICENSE
-      - '*.go'
-      - '**/*.go'
-      - README.md
-      - CHANGELOG.md
+      - adapter/segmentio/go.mod
+      - adapter/segmentio/go.sum
+      - LICENSE
+      - 'adapter/segmentio/*.go'
+      - 'adapter/segmentio/**/*.go'
+      - adapter/segmentio/README.md
+      - adapter/segmentio/CHANGELOG.md
       # Exclude test files and dist
-      - '!**/*_test.go'
-      - '!dist/**/*'
+      - '!adapter/segmentio/**/*_test.go'
+      - '!adapter/segmentio/dist/**/*'
 
 checksum:
-  name_template: '{{ .ProjectName }}-{{ .Version }}-checksums.txt'
+  name_template: '{{ .ProjectName }}-{{ .Env.VERSION_CLEAN }}-checksums.txt'
 
 source:
   enabled: true
-  name_template: '{{ .ProjectName }}-{{ .Version }}-full-source'
+  name_template: '{{ .ProjectName }}-{{ .Env.VERSION_CLEAN }}-full-source'
+
+dist: adapter/segmentio/dist
 
 changelog:
   disable: true
@@ -35,7 +41,7 @@ release:
     owner: vmyroslav
     name: kafka-pulse-go
   
-  name_template: 'SegmentIO Adapter v{{ .Version }}'
+  name_template: 'SegmentIO Adapter v{{ .Env.VERSION_CLEAN }}'
   
   header: |
     This release contains updates to the SegmentIO Kafka Go client adapter.

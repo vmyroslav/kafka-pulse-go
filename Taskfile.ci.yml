@@ -177,10 +177,13 @@ tasks:
       - |
         echo "Building release for {{.COMPONENT}} v{{.VERSION}} from {{.WORKDIR}}"
         export RELEASE_NOTES_CONTENT="$(cat {{.RELEASE_NOTES_FILE}})"
-        export GORELEASER_CURRENT_TAG="v{{.VERSION}}"
+        TAG_PREFIX={{if eq .COMPONENT "core"}}{{else}}{{.COMPONENT}}/{{end}}
+        export GORELEASER_CURRENT_TAG="${TAG_PREFIX}v{{.VERSION}}"
+        export RELEASE_VERSION="{{.VERSION}}"
         ARGS="--clean --skip=validate"
         {{if eq .DRAFT "true"}}ARGS="$ARGS --draft"{{end}}
-        cd "{{.WORKDIR}}" && goreleaser release $ARGS
+        # run GoReleaser from repo root with config path for monorepo support
+        goreleaser release $ARGS --config="{{.WORKDIR}}/.goreleaser.yml"
 
   release:workflow:
     desc: Complete release workflow (prepare + tag + build)
