@@ -5,8 +5,8 @@ silent: true
 vars:
   RELEASE_NOTES_FILE: release_notes.md
   
-  COMPONENTS: [core, sarama, confluent, segmentio]
-  ADAPTERS: [sarama, confluent, segmentio]
+  COMPONENTS: [core, sarama, confluent, segmentio, franz]
+  ADAPTERS: [sarama, confluent, segmentio, franz]
   
   CORE_PATH: "."
   CORE_TAG_PREFIX: ""
@@ -23,6 +23,10 @@ vars:
   SEGMENTIO_PATH: "./adapter/segmentio"
   SEGMENTIO_TAG_PREFIX: "segmentio/"
   SEGMENTIO_CHANGELOG: "./adapter/segmentio/CHANGELOG.md"
+
+  FRANZ_PATH: "./adapter/franz"
+  FRANZ_TAG_PREFIX: "franz/"
+  FRANZ_CHANGELOG: "./adapter/franz/CHANGELOG.md"
 
 tasks:
   # =================================================================
@@ -66,6 +70,16 @@ tasks:
       - task: test:segmentio:integration
         vars: { COVERAGE: "{{.COVERAGE}}" }
 
+  test:franz:
+    desc: Run franz adapter tests (unit + integration)
+    vars:
+      COVERAGE: '{{.COVERAGE | default "false"}}'
+    deps:
+      - task: test:franz:unit
+        vars: { COVERAGE: "{{.COVERAGE}}" }
+      - task: test:franz:integration
+        vars: { COVERAGE: "{{.COVERAGE}}" }
+
   test:integration:
     desc: Run only integration tests (no coverage)
     deps:
@@ -78,7 +92,7 @@ tasks:
     vars:
       COVERAGE: '{{.COVERAGE | default "false"}}'
     cmds:
-      - go test -timeout=60s -race {{if eq .COVERAGE "true"}}-covermode=atomic -coverprofile=profile.unit.cov{{end}} adapter_test.go adapter.go
+      - go test -ldflags="-w" -timeout=60s -race {{if eq .COVERAGE "true"}}-covermode=atomic -coverprofile=profile.unit.cov{{end}} .
 
   test:confluent:integration:
     desc: Run confluent integration tests (real containers)
@@ -86,7 +100,7 @@ tasks:
     vars:
       COVERAGE: '{{.COVERAGE | default "false"}}'
     cmds:
-      - go test -timeout=300s -race {{if eq .COVERAGE "true"}}-covermode=atomic -coverprofile=profile.integration.cov{{end}} adapter_integration_test.go adapter.go
+      - go test -ldflags="-w" -timeout=300s -race -tags=integration {{if eq .COVERAGE "true"}}-covermode=atomic -coverprofile=profile.integration.cov{{end}} .
 
   test:sarama:unit:
     desc: Run sarama unit tests (no containers)
@@ -94,7 +108,7 @@ tasks:
     vars:
       COVERAGE: '{{.COVERAGE | default "false"}}'
     cmds:
-      - go test -timeout=60s -race {{if eq .COVERAGE "true"}}-covermode=atomic -coverprofile=profile.unit.cov{{end}} adapter_test.go adapter.go
+      - go test -timeout=60s -race {{if eq .COVERAGE "true"}}-covermode=atomic -coverprofile=profile.unit.cov{{end}} .
 
   test:sarama:integration:
     desc: Run sarama integration tests (real containers)
@@ -102,7 +116,7 @@ tasks:
     vars:
       COVERAGE: '{{.COVERAGE | default "false"}}'
     cmds:
-      - go test -timeout=300s -race {{if eq .COVERAGE "true"}}-covermode=atomic -coverprofile=profile.integration.cov{{end}} adapter_integration_test.go adapter.go
+      - go test -timeout=300s -race -tags=integration {{if eq .COVERAGE "true"}}-covermode=atomic -coverprofile=profile.integration.cov{{end}} .
 
   test:segmentio:unit:
     desc: Run segmentio unit tests (no containers)
@@ -110,7 +124,7 @@ tasks:
     vars:
       COVERAGE: '{{.COVERAGE | default "false"}}'
     cmds:
-      - go test -timeout=60s -race {{if eq .COVERAGE "true"}}-covermode=atomic -coverprofile=profile.unit.cov{{end}} adapter_test.go adapter.go
+      - go test -timeout=60s -race {{if eq .COVERAGE "true"}}-covermode=atomic -coverprofile=profile.unit.cov{{end}} .
 
   test:segmentio:integration:
     desc: Run segmentio integration tests (real containers)
@@ -118,7 +132,33 @@ tasks:
     vars:
       COVERAGE: '{{.COVERAGE | default "false"}}'
     cmds:
-      - go test -timeout=300s -race {{if eq .COVERAGE "true"}}-covermode=atomic -coverprofile=profile.integration.cov{{end}} adapter_integration_test.go adapter.go
+      - go test -timeout=300s -race -tags=integration {{if eq .COVERAGE "true"}}-covermode=atomic -coverprofile=profile.integration.cov{{end}} .
+
+  test:franz:unit:
+    desc: Run franz unit tests (no containers)
+    dir: adapter/franz
+    vars:
+      COVERAGE: '{{.COVERAGE | default "false"}}'
+    cmds:
+      - go test -timeout=60s -race {{if eq .COVERAGE "true"}}-covermode=atomic -coverprofile=profile.unit.cov{{end}} .
+
+  test:franz:integration:
+    desc: Run franz integration tests (real containers)
+    dir: adapter/franz
+    vars:
+      COVERAGE: '{{.COVERAGE | default "false"}}'
+    cmds:
+      - go test -timeout=300s -race -tags=integration {{if eq .COVERAGE "true"}}-covermode=atomic -coverprofile=profile.integration.cov{{end}} .
+
+  test:franz:docker:
+    desc: Run franz docker-compose integration tests
+    dir: adapter/franz
+    cmds:
+      - docker-compose up -d
+      - defer: docker-compose down
+      - echo "Waiting for Kafka to be ready (45s)..."
+      - sleep 45
+      - go test -v -race -timeout=300s -run DockerIntegration
 
   test:coverage:
     desc: Generate combined coverage report from all tests
@@ -146,7 +186,7 @@ tasks:
         fi
         
         # Add adapter coverage files
-        for adapter in confluent sarama segmentio; do
+        for adapter in confluent sarama segmentio franz; do
           # Unit coverage
           if [ -f "adapter/$adapter/profile.unit.cov" ]; then
             tail -n +2 "adapter/$adapter/profile.unit.cov" >> profile.cov.merged
@@ -205,6 +245,13 @@ tasks:
       - go get -u ./...
       - go mod tidy
 
+  update-deps:franz:
+    desc: Update franz adapter dependencies
+    dir: adapter/franz
+    cmds:
+      - go get -u ./...
+      - go mod tidy
+
   # =================================================================
   # Clean Tasks
   # =================================================================
@@ -229,5 +276,11 @@ tasks:
   clean:segmentio:
     desc: Clean and tidy segmentio adapter
     dir: adapter/segmentio
+    cmds:
+      - go mod tidy
+
+  clean:franz:
+    desc: Clean and tidy franz adapter
+    dir: adapter/franz
     cmds:
       - go mod tidy
