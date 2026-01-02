@@ -66,5 +66,6 @@ Ready-to-use adapters for popular Kafka clients. Each adapter provides the requi
 | [Sarama](adapter/sarama/) | `github.com/vmyroslav/kafka-pulse-go/adapter/sarama` | IBM Sarama client adapter |
 | [SegmentIO](adapter/segmentio/) | `github.com/vmyroslav/kafka-pulse-go/adapter/segmentio` | segmentio/kafka-go client adapter |
 | [Confluent](adapter/confluent/) | `github.com/vmyroslav/kafka-pulse-go/adapter/confluent` | Confluent's kafka-go client adapter |
+| [Franz-go](adapter/franz/) | `github.com/vmyroslav/kafka-pulse-go/adapter/franz` | franz-go client adapter |
 
 Each adapter directory contains detailed documentation and usage examples.
