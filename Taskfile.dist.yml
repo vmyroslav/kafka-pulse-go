@@ -2,12 +2,14 @@ version: '3'
 
 silent: true
 
+vars:
+  COMPONENTS: [core, sarama, confluent, segmentio, franz]
+  ADAPTERS: [sarama, confluent, segmentio, franz]
+
 includes:
   internal:
     taskfile: ./Taskfile.internal.yml
     internal: true
-  ci:
-    taskfile: ./Taskfile.ci.yml
 
 tasks:
   default:
