@@ -2,32 +2,6 @@ version: '3'
 
 silent: true
 
-vars:
-  RELEASE_NOTES_FILE: release_notes.md
-  
-  COMPONENTS: [core, sarama, confluent, segmentio, franz]
-  ADAPTERS: [sarama, confluent, segmentio, franz]
-  
-  CORE_PATH: "."
-  CORE_TAG_PREFIX: ""
-  CORE_CHANGELOG: "./CHANGELOG.md"
-  
-  SARAMA_PATH: "./adapter/sarama"
-  SARAMA_TAG_PREFIX: "sarama/"
-  SARAMA_CHANGELOG: "./adapter/sarama/CHANGELOG.md"
-  
-  CONFLUENTIC_PATH: "./adapter/confluent" 
-  CONFLUENTIC_TAG_PREFIX: "confluent/"
-  CONFLUENTIC_CHANGELOG: "./adapter/confluent/CHANGELOG.md"
-  
-  SEGMENTIO_PATH: "./adapter/segmentio"
-  SEGMENTIO_TAG_PREFIX: "segmentio/"
-  SEGMENTIO_CHANGELOG: "./adapter/segmentio/CHANGELOG.md"
-
-  FRANZ_PATH: "./adapter/franz"
-  FRANZ_TAG_PREFIX: "franz/"
-  FRANZ_CHANGELOG: "./adapter/franz/CHANGELOG.md"
-
 tasks:
   # =================================================================
   # Test Tasks

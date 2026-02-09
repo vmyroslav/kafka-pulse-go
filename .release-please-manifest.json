@@ -1,0 +1,7 @@
+{
+  ".": "0.1.0",
+  "adapter/sarama": "0.1.0",
+  "adapter/confluent": "0.1.0",
+  "adapter/segmentio": "0.1.0",
+  "adapter/franz": "0.1.0"
+}

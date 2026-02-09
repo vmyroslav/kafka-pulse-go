@@ -1,0 +1,27 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "go",
+  "separate-pull-requests": true,
+  "packages": {
+    ".": {
+      "component": "kafka-pulse-go",
+      "changelog-path": "CHANGELOG.md"
+    },
+    "adapter/sarama": {
+      "component": "sarama",
+      "changelog-path": "CHANGELOG.md"
+    },
+    "adapter/confluent": {
+      "component": "confluent",
+      "changelog-path": "CHANGELOG.md"
+    },
+    "adapter/segmentio": {
+      "component": "segmentio",
+      "changelog-path": "CHANGELOG.md"
+    },
+    "adapter/franz": {
+      "component": "franz",
+      "changelog-path": "CHANGELOG.md"
+    }
+  }
+}
