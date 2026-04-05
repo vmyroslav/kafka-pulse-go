@@ -37,7 +37,7 @@ jobs:
           task test
 
       - name: Submit coverage
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: ./profile.cov
           token: ${{ secrets.CODECOV_TOKEN }}
